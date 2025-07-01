@@ -1,4 +1,4 @@
-FROM python:3.13-slim
+FROM python:3.14-slim
 
 WORKDIR /app
 
@@ -13,5 +13,8 @@ RUN pip install uv && uv sync
 
 # Copy actual source code (this layer changes frequently)
 COPY sloppy/ ./sloppy/
+
+# Copy env file with API keys
+COPY ./.env ./.env
 
 CMD ["uv", "run", "celery", "-A", "sloppy.celery_app", "worker", "--loglevel=info"]

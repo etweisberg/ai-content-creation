@@ -1,28 +1,51 @@
 #!/usr/bin/env python3
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
-from sloppy.celery_app import app
+from sloppy.script_gen.tasks import generate_news_script
 
 console = Console()
 
+"""
+Script/video task management
+"""
 
-def get_celery_stats():
-    """Get Celery stats"""
-    try:
-        inspect = app.control.inspect()
-        stats = inspect.stats()
 
-        if not stats:
-            return "No workers connected"
+class TaskManager:
+    def __init__(self, max_workers=5):
+        self.executor = ThreadPoolExecutor(
+            max_workers=max_workers, thread_name_prefix="task_handler"
+        )
+        self.futures = []
 
-        worker_count = len(stats.keys())
-        return f"Workers: {worker_count} - Connected"
-    except Exception:
-        return "Celery connection failed"
+    def new_script_task(self, choice):
+        script_task = generate_news_script.apply_async(args=(choice,))
+
+        # Submit to thread pool
+        future = self.executor.submit(handle_script_task, script_task)
+        self.futures.append(future)
+
+        return future
+
+
+def handle_script_task(script_task):
+    print("--------SCRIPT TASK HANDLING--------")
+    print(f"id: {script_task.id}")
+    while not script_task.ready():
+        continue
+
+    print(f"result: {script_task.result}")
+
+
+task_manager = TaskManager()
+
+"""
+Terminal UI for task generation
+"""
 
 
 def clear_screen():
@@ -39,10 +62,6 @@ def show_main_menu():
         console.print(
             Panel(Text("AI TT Generator", style="bold blue", justify="center"))
         )
-
-        # Status
-        status_text = get_celery_stats()
-        console.print(Panel(Text(status_text, style="green"), title="Celery Status"))
 
         # Menu
         console.print(
@@ -78,10 +97,6 @@ def show_submenu(option):
             Panel(Text("AI TT Generator", style="bold blue", justify="center"))
         )
 
-        # Status
-        status_text = get_celery_stats()
-        console.print(Panel(Text(status_text, style="green"), title="Celery Status"))
-
         # Submenu
         console.print(
             Panel(
@@ -94,15 +109,12 @@ b - Back""",
         )
 
         choice = input("\nEnter choice: ").strip().lower()
+        st = task_manager.new_script_task(choice)
 
         if choice == "b":
             break
         else:
-            console.print(
-                "\n[yellow]Feature coming soon! Press Enter to continue...[/yellow]"
-            )
-            input()
-            break
+            console.print(f"\n[blue]Script task submitted!! -- {st}[/blue]")
 
 
 def main():

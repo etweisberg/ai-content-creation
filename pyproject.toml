@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "asyncio>=3.4.3",
     "celery>=5.5.3",
     "open-deep-research>=0.0.15",
     "redis>=6.2.0",

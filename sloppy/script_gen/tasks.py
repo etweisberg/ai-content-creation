@@ -1,9 +1,24 @@
+import asyncio
+import os
 import uuid
+from pathlib import Path
 
+from dotenv import load_dotenv
 from langgraph.checkpoint.memory import MemorySaver
 from open_deep_research.multi_agent import supervisor_builder
 
 from sloppy.celery_app import app
+
+# Load environment variables
+env_path = Path(__file__).parent.parent.parent / ".env"
+loaded = load_dotenv(env_path)
+
+# Debug prints
+print(f"Environment file path: {env_path}")
+print(f"Environment file exists: {env_path.exists()}")
+print(f"load_dotenv returned: {loaded}")
+print(f"OPENAI_API_KEY loaded: {'OPENAI_API_KEY' in os.environ}")
+print(f"TAVILY_API_KEY loaded: {'TAVILY_API_KEY' in os.environ}")
 
 # Agent setup
 checkpointer = MemorySaver()
@@ -25,8 +40,8 @@ thread_config = {"configurable": config}
 
 
 # Script generation task
-@app.task
-async def generate_news_script(topic):
+@app.task(bind=True)
+def generate_news_script(self, topic):
     """Generate news script"""
     msg = [
         {
@@ -84,5 +99,54 @@ async def generate_news_script(topic):
         },
         {"role": "user", "content": f"Generate a script about {topic}"},
     ]
-    response = await agent.ainvoke({"messages": msg}, config=thread_config)
-    return response
+
+    async def run_async():
+        print(f"🔍 About to call agent.ainvoke with config: {thread_config}")
+        response = await agent.ainvoke({"messages": msg}, config=thread_config)
+        print(f"🔍 Raw response type: {type(response)}")
+        print(f"🔍 Raw response: {response}")
+        print(f"🔍 Response repr: {repr(response)}")
+
+        # Check if it's a dict and what keys it has
+        if isinstance(response, dict):
+            print(f"🔍 Response keys: {response.keys()}")
+            for key, value in response.items():
+                print(f"🔍   {key}: {type(value)} = {value}")
+
+        # Check common LangGraph response patterns
+        if hasattr(response, "__dict__"):
+            print(f"🔍 Response attributes: {response.__dict__}")
+
+        return response
+
+    # Execute the async function and get the result
+    result = asyncio.run(run_async())
+
+    print(f"🔍 Final result type: {type(result)}")
+    print(f"🔍 Final result: {result}")
+    print(f"🔍 Final result repr: {repr(result)}")
+    print(f"🔍 Final result is None: {result is None}")
+
+    # Extract the result content
+    if hasattr(result, "content"):
+        print("✅ Using result.content")
+        return result.content
+    elif isinstance(result, dict):
+        print("✅ Using dict result")
+        # LangGraph typically returns state dicts, check for common keys
+        if "messages" in result:
+            print("🔍 Found messages in result")
+            messages = result["messages"]
+            if messages and len(messages) > 0:
+                last_message = messages[-1]
+                print(f"🔍 Last message: {last_message}")
+                if hasattr(last_message, "content"):
+                    return last_message.content
+                elif isinstance(last_message, dict) and "content" in last_message:
+                    return last_message["content"]
+        return result
+    else:
+        print("✅ Using str conversion")
+        str_result = str(result)
+        print(f"🔍 String conversion result: '{str_result}'")
+        return str_result
