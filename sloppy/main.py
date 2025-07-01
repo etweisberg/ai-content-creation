@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
+import os
+
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Prompt
-from rich.table import Table
 from rich.text import Text
 
 from sloppy.celery_app import app
@@ -10,105 +10,107 @@ from sloppy.celery_app import app
 console = Console()
 
 
-def create_header():
-    """Create the beautiful header"""
-    header_text = Text("AI TT Generator", style="bold magenta", justify="center")
-    header_text.stylize("bold cyan", 0, 2)
-    header_text.stylize("bold yellow", 3, 5)
-    header_text.stylize("bold green", 6, 15)
-    return Panel(header_text, border_style="bright_blue", padding=(1, 2))
-
-
 def get_celery_stats():
-    """Get Celery worker and queue statistics"""
+    """Get Celery stats"""
     try:
         inspect = app.control.inspect()
         stats = inspect.stats()
-        active_tasks = inspect.active()
 
         if not stats:
-            return "No workers available", "No active tasks"
+            return "No workers connected"
 
         worker_count = len(stats.keys())
-        active_count = (
-            sum(len(tasks) for tasks in active_tasks.values()) if active_tasks else 0
+        return f"Workers: {worker_count} - Connected"
+    except Exception:
+        return "Celery connection failed"
+
+
+def clear_screen():
+    """Clear the screen"""
+    os.system("clear" if os.name == "posix" else "cls")
+
+
+def show_main_menu():
+    """Show main menu and get user choice"""
+    while True:
+        clear_screen()
+
+        # Header
+        console.print(
+            Panel(Text("AI TT Generator", style="bold blue", justify="center"))
         )
 
-        return f"Workers: {worker_count}", f"Active Tasks: {active_count}"
-    except Exception as e:
-        return "Connection Error", str(e)
+        # Status
+        status_text = get_celery_stats()
+        console.print(Panel(Text(status_text, style="green"), title="Celery Status"))
 
+        # Menu
+        console.print(
+            Panel(
+                """1 - Generate Script
+2 - Generate Video
+q - Quit""",
+                title="Main Menu",
+            )
+        )
 
-def create_status_panel():
-    """Create status panel with Celery info"""
-    worker_info, task_info = get_celery_stats()
-
-    table = Table(show_header=False, box=None)
-    table.add_column("Metric", style="cyan")
-    table.add_column("Value", style="green")
-    table.add_row("Status", "Running")
-    table.add_row(
-        "Workers", worker_info.split(": ")[1] if ": " in worker_info else worker_info
-    )
-    table.add_row(
-        "Active Tasks", task_info.split(": ")[1] if ": " in task_info else task_info
-    )
-
-    return Panel(table, title="Celery Status", border_style="green")
-
-
-def create_menu():
-    """Create the main menu"""
-    menu_table = Table(show_header=False, box=None, padding=(0, 2))
-    menu_table.add_column("Option", style="bold white")
-    menu_table.add_column("Description", style="dim white")
-
-    menu_table.add_row("1", "Generate Script")
-    menu_table.add_row("2", "Generate Video")
-    menu_table.add_row("q", "Quit")
-
-    return Panel(menu_table, title="Main Menu", border_style="blue")
-
-
-def main():
-    """Main TUI loop"""
-    while True:
-        console.clear()
-
-        # Display header
-        console.print(create_header())
-        console.print()
-
-        # Display status
-        console.print(create_status_panel())
-        console.print()
-
-        # Display menu
-        console.print(create_menu())
-        console.print()
-
-        # Get user choice
-        choice = Prompt.ask("Select an option", choices=["1", "2", "q"], default="q")
+        choice = input("\nEnter choice: ").strip().lower()
 
         if choice == "1":
-            console.print(
-                "[yellow]Generate Script selected - Feature coming soon![/yellow]"
-            )
-            console.input("Press Enter to continue...")
+            show_submenu("Generate Script")
         elif choice == "2":
-            console.print(
-                "[yellow]Generate Video selected - Feature coming soon![/yellow]"
-            )
-            console.input("Press Enter to continue...")
+            show_submenu("Generate Video")
         elif choice == "q":
-            console.print("[green]Goodbye![/green]")
+            console.print("\n[green]Goodbye![/green]")
+            break
+        else:
+            console.print("\n[red]Invalid choice. Press Enter to continue...[/red]")
+            input()
+
+
+def show_submenu(option):
+    """Show submenu for selected option"""
+    while True:
+        clear_screen()
+
+        # Header
+        console.print(
+            Panel(Text("AI TT Generator", style="bold blue", justify="center"))
+        )
+
+        # Status
+        status_text = get_celery_stats()
+        console.print(Panel(Text(status_text, style="green"), title="Celery Status"))
+
+        # Submenu
+        console.print(
+            Panel(
+                f"""Selected: {option}
+[yellow]Feature coming soon![/yellow]
+
+b - Back""",
+                title=option,
+            )
+        )
+
+        choice = input("\nEnter choice: ").strip().lower()
+
+        if choice == "b":
+            break
+        else:
+            console.print(
+                "\n[yellow]Feature coming soon! Press Enter to continue...[/yellow]"
+            )
+            input()
             break
 
 
-if __name__ == "__main__":
+def main():
     try:
-        main()
+        show_main_menu()
     except KeyboardInterrupt:
-        console.print("[red]Interrupted by user[/red]")
-    except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
+        console.print("\n[red]Interrupted by user[/red]")
+
+
+if __name__ == "__main__":
+    main()

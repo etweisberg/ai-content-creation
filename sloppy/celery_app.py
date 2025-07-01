@@ -12,9 +12,9 @@ app.config_from_object(
         "timezone": "UTC",
         "enable_utc": True,
         "imports": (
-            "script-gen.tasks",
-            "upload-tt.tasks",
-            "video-prod.tasks",
+            "sloppy.script_gen.tasks",
+            "sloppy.upload_tt.tasks",
+            "sloppy.video_prod.tasks",
         ),
     }
 )
