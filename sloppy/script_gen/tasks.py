@@ -1,11 +1,8 @@
 import asyncio
-import os
 import traceback
 import uuid
-from pathlib import Path
 from typing import Any, TypedDict
 
-from dotenv import load_dotenv
 from langchain_community.callbacks.manager import get_openai_callback
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.checkpoint.memory import MemorySaver
@@ -14,14 +11,7 @@ from open_deep_research.multi_agent import supervisor_builder
 from pydantic import BaseModel, Field
 
 from sloppy.celery_app import app
-
-# Load environment variables
-env_path = Path(__file__).parent.parent.parent / ".env"
-load_dotenv(env_path)
-
-# Checking keys
-print(f"OPENAI_API_KEY loaded: {'OPENAI_API_KEY' in os.environ}")
-print(f"TAVILY_API_KEY loaded: {'TAVILY_API_KEY' in os.environ}")
+from sloppy.utils import load_envs
 
 
 # Define structured output schema for the script
@@ -166,6 +156,7 @@ except Exception as e:
 @app.task(bind=True)
 def generate_news_script(self, topic):
     """Generate news script"""
+    load_envs()
     try:
         print(f"\n🚀 Starting script generation for topic: {topic}")
 

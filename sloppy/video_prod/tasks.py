@@ -3,20 +3,12 @@ import os
 import re
 import tempfile
 import traceback
-from pathlib import Path
 
 import av
-from dotenv import load_dotenv
 from huggingface_hub import InferenceClient
 
 from sloppy.celery_app import app
-
-# Load environment variables
-env_path = Path(__file__).parent.parent.parent / ".env"
-load_dotenv(env_path)
-
-# Check API key
-print(f"HF_TOKEN loaded: {'HF_TOKEN' in os.environ}")
+from sloppy.utils import load_envs
 
 
 def split_text_for_tts(text: str, max_length: int = 200) -> list[str]:
@@ -177,6 +169,7 @@ def concatenate_audio_segments(
 @app.task(bind=True)
 def generate_video(self, script, settings):
     """Generate video task - generates audio from script using Dia with chunking"""
+    load_envs()
     try:
         print("\n🎬 Starting video generation...")
         print(f"   Script length: {len(script)} characters")
