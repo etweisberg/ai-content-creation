@@ -22,18 +22,24 @@ services:
       - redis_data:/data
 
   celery-worker:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.celery
     depends_on:
       - redis
+      - mongodb
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
     volumes:
       - ./sloppy:/app/sloppy
+      - ./.env:/app/.env
     command: uv run celery -A sloppy.celery_app worker --loglevel=info -E
 
   flower:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.celery
     depends_on:
       - redis
       - celery-worker
@@ -42,9 +48,28 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
     volumes:
       - ./sloppy:/app/sloppy
+      - ./.env:/app/.env
     ports:
       - "5555:5555"
     command: uv run celery -A sloppy.celery_app flower --basic-auth=admin:password --port=5555 --address=0.0.0.0
+    restart: unless-stopped
+
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    depends_on:
+      - redis
+      - mongodb
+      - celery-worker
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    volumes:
+      - ./sloppy:/app/sloppy
+      - ./.env:/app/.env
+    ports:
+      - "8501:8501"
     restart: unless-stopped
 
 volumes:

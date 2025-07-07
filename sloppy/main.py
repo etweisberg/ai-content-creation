@@ -10,6 +10,7 @@ from rich.text import Text
 
 from sloppy.db.script_model import Script, ScriptRepository, ScriptState
 from sloppy.script_gen.tasks import generate_news_script
+from sloppy.video_prod.tasks import generate_video
 
 """
 Script/video task management
@@ -35,9 +36,26 @@ class TaskManager:
 
     def new_script_task(self, choice):
         script_task = generate_news_script.apply_async(args=(choice,))  # type: ignore
-        script_obj = Script(id=script_task.id, user_prompt=choice)
+        script_obj = Script(
+            id=script_task.id, user_prompt=choice, state=ScriptState.GENERATING
+        )
         # Submit to thread pool
         future = self.executor.submit(handle_script_task, script_task, script_obj)
+        self.futures.append(future)
+
+        return future
+
+    def new_video_task(self, script_id):
+        script_obj = script_mongo.get_script(script_id)
+        if not script_obj:
+            raise FileNotFoundError("Script Not Found")
+        video_task = generate_video.apply_async(  # type: ignore
+            args=(
+                script_obj.script,
+                {},
+            )
+        )
+        future = self.executor.submit(handle_video_task, video_task, script_obj)
         self.futures.append(future)
 
         return future
@@ -51,7 +69,23 @@ def handle_script_task(script_task, script_obj):
     while not script_task.ready():
         continue
     script_mongo.update_script(
-        script_task.id, {"script": script_task.result, "state": ScriptState.GENERATED}
+        script_task.id,
+        {
+            "script": script_task.result.script,
+            "state": ScriptState.GENERATED,
+            "cost": script_task.result.cost,
+        },
+    )
+
+
+def handle_video_task(video_task, script_obj):
+    script_mongo.update_script(script_obj.id, {"state": ScriptState.PRODUCING})
+
+    while not video_task.ready():
+        continue
+    audio_filepath, video_filepath = video_task.result
+    script_mongo.update_script(
+        script_obj.id, {"audio_file": audio_filepath, "video_file": video_filepath}
     )
 
 
@@ -126,14 +160,21 @@ def show_submenu(option):
             )
 
         choice = input("\nEnter choice: ").strip().lower()
-        st = task_manager.new_script_task(choice)
 
         if choice == "b":
             has_submitted = False
             break
-        else:
-            has_submitted = True
-            console.print(f"\n[blue]Script task submitted!! -- {st}[/blue]")
+
+        match option:
+            case "Generate Script":
+                task = task_manager.new_script_task(choice)
+            case "Generate Video":
+                task = task_manager.new_video_task(choice)
+            case _:
+                task = None
+
+        has_submitted = True
+        console.print(f"\n[blue]Script task submitted!! -- {task}[/blue]")
 
 
 def main():

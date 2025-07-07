@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 from dotenv import load_dotenv
+from langchain_community.callbacks.manager import get_openai_callback
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
@@ -46,6 +47,7 @@ class PodcastScript(BaseModel):
 
 # Define our custom state
 class ScriptGenerationState(TypedDict):
+    cost: float
     messages: list
     final_script: str | None
     script_ready: bool
@@ -90,11 +92,15 @@ def extract_structured_script(state: ScriptGenerationState) -> dict[str, Any]:
                     script_lines=script_lines,
                 ).to_formatted_script()
 
-                return {"final_script": formatted_script, "script_ready": True}
+                return {
+                    "final_script": formatted_script,
+                    "script_ready": True,
+                    "cost": state.get("cost", 0.0),
+                }
 
     # If we get here, no script found
     print("   ❌ No script found in messages!")
-    return {"final_script": None, "script_ready": False}
+    return {"final_script": None, "script_ready": False, "cost": state.get("cost", 0.0)}
 
 
 # Agent setup
@@ -121,28 +127,23 @@ try:
                 "search_api": "tavily",
                 "supervisor_model": "openai:o1",
                 "researcher_model": "openai:o1",
-                "mcp_server_config": {
-                    "youtube-transcript": {
-                        "command": "npx",
-                        "args": ["-y", "@kimtaeyoon83/mcp-server-youtube-transcript"],
-                    }
-                },
             }
         }
 
         # Call agent (always returns None)
-        await original_agent.ainvoke(input_dict, config=config)  # type: ignore
+        with get_openai_callback() as cb:
+            await original_agent.ainvoke(input_dict, config=config)  # type: ignore
 
-        # Extract results from state (this is where the actual results are)
-        final_state = original_agent.get_state(config)  # type: ignore
-        result = final_state.values
+            # Extract results from state (this is where the actual results are)
+            final_state = original_agent.get_state(config)  # type: ignore
+            result = final_state.values
 
-        print(
-            f"   ✅ Agent completed, extracted {len(result['messages'])} "
-            "messages from state"
-        )
+            print(
+                f"   ✅ Agent completed, extracted {len(result['messages'])} "
+                "messages from state"
+            )
 
-        return {"messages": result["messages"]}
+            return {"messages": result["messages"], "cost": cb.total_cost}
 
     # Create the wrapper graph
     wrapper_graph = StateGraph(ScriptGenerationState)
@@ -190,6 +191,27 @@ REQUIREMENTS:
 - Do NOT ask questions or request clarification
 - Generate the complete script immediately
 
+CRITICAL FORMATTING FOR AUDIO GENERATION:
+- Keep each speaker's turn under 300 characters for optimal text-to-speech conversion
+- Use proper punctuation: periods, commas, question marks, and exclamation points
+- Write in complete sentences with natural speech rhythm
+- Include pauses with commas where speakers would naturally breathe
+- Avoid run-on sentences - break long thoughts into shorter sentences
+- Use contractions and natural speech patterns (don't, can't, we're, etc.)
+- End declarative statements with periods, questions with question marks
+- Use exclamation points sparingly for emphasis
+- Include natural interjections like "Well," "Look," "Actually," for realistic dialogue
+flow
+
+SPEECH QUALITY GUIDELINES:
+- DO NOT include a greeting or introduction or a conclusion, the script is for only the
+conversation
+- Write as people actually speak, not formal written text
+- Use shorter sentences that sound natural when spoken aloud
+- Include natural conversation fillers and transitions
+- Ensure each line flows smoothly when read aloud
+- Avoid complex sentence structures that are hard to pronounce
+
 End your response with the complete script in [S1]/[S2] format."""
             ),
             HumanMessage(
@@ -213,14 +235,29 @@ End your response with the complete script in [S1]/[S2] format."""
         result = asyncio.run(run_async())
 
         # Extract script
-        if result and result.get("script_ready") and result.get("final_script"):
+        if (
+            result
+            and result.get("script_ready")
+            and result.get("final_script")
+            and result.get("cost")
+        ):
             script = result["final_script"]
+            cost = result["cost"]
             print(f"✅ Script generated: {len(script)} characters")
-            return script
+            return {
+                "success": True,
+                "script": script,
+                "cost": cost,
+                "length": len(script),
+            }
         else:
             raise ValueError("Script generation failed")
 
     except Exception as e:
         print(f"❌ Error: {e}")
         traceback.print_exc()
-        return f"SCRIPT_GENERATION_FAILED: {str(e)}"
+        return {
+            "success": False,
+            "error": f"SCRIPT_GENERATION_FAILED: {str(e)}",
+            "cost": 0.0,
+        }
