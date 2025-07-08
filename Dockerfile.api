@@ -1,0 +1,33 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    make \
+    libffi-dev \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv for fast Python package management
+RUN pip install uv
+
+# Copy dependency files
+COPY pyproject.toml uv.lock README.md ./
+
+# Create minimal package structure for hatchling
+RUN mkdir -p sloppy && touch sloppy/__init__.py
+
+# Install dependencies
+RUN uv sync --frozen
+
+# Copy application code
+COPY ./sloppy ./sloppy
+
+# Expose port
+EXPOSE 8000
+
+# Command to run the application
+CMD ["uv", "run", "uvicorn", "sloppy.api:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
