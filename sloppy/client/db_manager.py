@@ -22,6 +22,16 @@ class TaskManager:
         )
         self.futures = []
 
+    def cleanup_completed_futures(self):
+        logger.info("CLEANUP CALLED")
+        self.futures = [f for f in self.futures if not f.done()]
+        if len(self.futures) == 0:
+            logger.info("CLEANUP TRUE")
+            return True
+        else:
+            logger.info("CLEANUP FALSE")
+            return False
+
     def new_script_task(self, choice):
         script_task = generate_news_script.apply_async(args=(choice,))  # type: ignore
         script_obj = Script(
@@ -53,18 +63,13 @@ def handle_script_task(script_task, script_obj):
     try:
         # Create initial script in DB
         script_mongo.create_script(script_obj)
-        logger.info("WE ARE IN SCRIPT TASK")
 
         # Poll task
         while not script_task.ready():
             continue
 
-        logger.info("SCRIPT TASK FINISHED")
-
         # Get the result
         result = script_task.result
-        logger.info(f"Task result type: {type(result)}")
-        logger.info(f"Task result: {result}")
 
         # Check if task actually succeeded
         if not result.get("success", False):
@@ -77,12 +82,8 @@ def handle_script_task(script_task, script_obj):
         script_content = result["script"]
         cost = result["cost"]
 
-        logger.info(f"About to update script {script_task.id}")
-        logger.info(f"Script length: {len(script_content)} characters")
-        logger.info(f"Cost: {cost}")
-
         # Update database
-        update_result = script_mongo.update_script(
+        script_mongo.update_script(
             script_task.id,
             {
                 "script": script_content,
@@ -91,15 +92,10 @@ def handle_script_task(script_task, script_obj):
             },
         )
 
-        logger.info(f"Database update result: {update_result}")
         logger.info("✅ Script task handling completed successfully")
 
     except Exception as e:
         logger.error(f"❌ Error in handle_script_task: {e}")
-        logger.error(f"Exception type: {type(e)}")
-        import traceback
-
-        logger.error(f"Full traceback:\n{traceback.format_exc()}")
 
 
 def handle_video_task(video_task, script_obj):
