@@ -3,12 +3,22 @@ import os
 import re
 import tempfile
 import traceback
+from pathlib import Path
 
 import av
 from huggingface_hub import InferenceClient
 
 from sloppy.celery_app import app
+from sloppy.db.script_model import ScriptRepository
+from sloppy.socketio_client import emit_task_completed, emit_task_failed
 from sloppy.utils import load_envs
+
+# DB Connection
+script_mongo = ScriptRepository()
+if script_mongo.test_connection():
+    print("✅☘️ MongoDB Connected Succesfully!")
+else:
+    print("❌ Failed to Connect")
 
 
 def split_text_for_tts(text: str, max_length: int = 200) -> list[str]:
@@ -167,8 +177,9 @@ def concatenate_audio_segments(
 
 
 @app.task(bind=True)
-def generate_video(self, script, settings):
+def generate_video(self, script_id, script, settings):
     """Generate video task - generates audio from script using Dia with chunking"""
+    task_id = self.request.id
     load_envs()
     try:
         print("\n🎬 Starting video generation...")
@@ -201,11 +212,11 @@ def generate_video(self, script, settings):
 
             print(f"   ✅ Generated audio: {len(audio_bytes)} bytes")
 
-            # Save to temporary file
-            print("💾 Saving to temporary file...")
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
-                temp_file.write(audio_bytes)
-                temp_file_path = temp_file.name
+            # Save to file
+            print("💾 Saving to av_output file...")
+            audio_path = Path(f"/app/av_output/{task_id}.wav")
+            audio_path.parent.mkdir(parents=True, exist_ok=True)
+            audio_path.write_bytes(audio_bytes)
 
         else:
             # Script is too long, use chunking
@@ -234,14 +245,23 @@ def generate_video(self, script, settings):
 
             # Concatenate all audio segments
             print(f"🔗 Concatenating {len(audio_segments)} audio segments...")
-            temp_file_path = concatenate_audio_segments(audio_segments)
+            audio_path = concatenate_audio_segments(
+                audio_segments,
+                output_path=f"/app/av_output/{task_id}",
+                output_format="wav",
+            )
 
-        print(f"✅ Audio saved to temporary file: {temp_file_path}")
-        print(f"   File size: {os.path.getsize(temp_file_path)} bytes")
+        print(f"✅ Audio saved to temporary file: {audio_path}")
+        print(f"   File size: {os.path.getsize(audio_path)} bytes")
+
+        script_mongo.update_script(script_id, {"audio_file": audio_path})
+
+        emit_task_completed(task_id)
 
         return True
 
     except Exception as e:
         print(f"❌ Error generating video: {e}")
         traceback.print_exc()
+        emit_task_failed(task_id, str(e))
         return False

@@ -11,7 +11,16 @@ from open_deep_research.multi_agent import supervisor_builder
 from pydantic import BaseModel, Field
 
 from sloppy.celery_app import app
+from sloppy.db.script_model import ScriptRepository, ScriptState
+from sloppy.socketio_client import emit_task_completed, emit_task_failed
 from sloppy.utils import load_envs
+
+# DB Connection
+script_mongo = ScriptRepository()
+if script_mongo.test_connection():
+    print("✅☘️ MongoDB Connected Succesfully!")
+else:
+    print("❌ Failed to Connect")
 
 
 # Define structured output schema for the script
@@ -157,6 +166,7 @@ except Exception as e:
 def generate_news_script(self, topic):
     """Generate news script"""
     load_envs()
+    task_id = self.request.id
     try:
         print(f"\n🚀 Starting script generation for topic: {topic}")
 
@@ -234,21 +244,27 @@ End your response with the complete script in [S1]/[S2] format."""
         ):
             script = result["final_script"]
             cost = result["cost"]
-            print(f"✅ Script generated: {len(script)} characters")
-            return {
-                "success": True,
+            response_dict = {
                 "script": script,
-                "cost": cost,
-                "length": len(script),
+                "state": ScriptState.GENERATED,
+                "script_cost": cost,
             }
+            print(f"✅ Script generated: {len(script)} characters")
+            script_mongo.update_script(
+                task_id,
+                response_dict,
+            )
+            emit_task_completed(task_id)
+            return response_dict
         else:
+            emit_task_failed(task_id, "ValueError - Script generation failed")
             raise ValueError("Script generation failed")
 
     except Exception as e:
         print(f"❌ Error: {e}")
         traceback.print_exc()
+        emit_task_failed(task_id, f"SCRIPT_GENERATION_FAILED: {str(e)}")
         return {
-            "success": False,
             "error": f"SCRIPT_GENERATION_FAILED: {str(e)}",
             "cost": 0.0,
         }
