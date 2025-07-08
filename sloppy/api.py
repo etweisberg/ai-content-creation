@@ -1,3 +1,4 @@
+import logging
 import os
 import uuid
 from typing import Any  # noqa: UP035
@@ -17,6 +18,8 @@ from sloppy.video_prod.tasks import generate_video
 
 load_envs()
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Sloppy API", version="1.0.0")
 
@@ -128,7 +131,7 @@ async def create_script_generation_task(request: ScriptGenerationRequest):
         script_repo.create_script(script)
 
         # Start Celery task with custom task ID
-        generate_news_script.apply_async(args=[request.topic], task_id=task_id)
+        generate_news_script.apply_async(args=[request.topic], task_id=task_id)  # type: ignore
 
         return {"task_id": task_id, "topic": request.topic}
     except Exception as e:
@@ -139,7 +142,7 @@ async def create_script_generation_task(request: ScriptGenerationRequest):
 async def create_video_generation_task(request: VideoGenerationRequest):
     """Create a new video generation task"""
     try:
-        task = generate_video.delay(request.script_id, request.script, request.settings)
+        task = generate_video.delay(request.script_id, request.script, request.settings)  # type: ignore
         return {
             "task_id": task.id,
         }
@@ -151,7 +154,7 @@ async def create_video_generation_task(request: VideoGenerationRequest):
 async def create_tiktok_upload_task(request: TikTokUploadRequest):
     """Create a new TikTok upload task"""
     try:
-        task = upload_tiktok.delay(request.video_path, request.metadata)
+        task = upload_tiktok.delay(request.video_path, request.metadata)  # type: ignore
         return {"task_id": task.id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -183,6 +186,17 @@ async def create_script(script: Script):
     try:
         script_id = script_repo.create_script(script)
         return script_id
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/scripts/studio-scripts", response_model=list[Script])
+async def studio_scripts():
+    try:
+        logger.info("GETTING SCRIPTS FOR STUDIO PAGE")
+        scripts = script_repo.get_scripts_not_in_state(ScriptState.UPLOADED)
+        logger.info(f"SCRIPTS: {scripts}")
+        return scripts
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -252,15 +266,6 @@ async def list_scripts_by_state(state: ScriptState):
     """List scripts by state"""
     try:
         scripts = script_repo.get_scripts_by_state(state)
-        return scripts
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@app.get("/scripts/studio-scripts", response_model=list[Script])
-async def studio_scripts():
-    try:
-        scripts = script_repo.get_scripts_not_in_state(ScriptState.UPLOADED)
         return scripts
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
