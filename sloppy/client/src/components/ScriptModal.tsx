@@ -265,19 +265,19 @@ export function ScriptModal({
               <h3 className="text-sm font-medium text-[#1a1a1a] mb-2">Costs</h3>
               <div className="bg-[#fafafa] rounded-lg p-4 border border-[#e0e0e0]">
                 <div className="space-y-2">
-                  {script.script_cost && script.script_cost > 0 && (
+                  {(script.script_cost ?? 0) > 0 && (
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-[#6b7280]">Script Generation</span>
                       <span className="font-medium">
-                        ${script.script_cost.toFixed(2)}
+                        ${script.script_cost?.toFixed(2)}
                       </span>
                     </div>
                   )}
-                  {script.video_cost && script.video_cost > 0 && (
+                  {(script.video_cost ?? 0) > 0 && (
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-[#6b7280]">Video Production</span>
                       <span className="font-medium">
-                        ${script.video_cost.toFixed(2)}
+                        ${script.video_cost?.toFixed(2)}
                       </span>
                     </div>
                   )}

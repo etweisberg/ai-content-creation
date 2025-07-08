@@ -1,5 +1,4 @@
 import logging
-import os
 import uuid
 from typing import Any  # noqa: UP035
 
@@ -26,7 +25,9 @@ app = FastAPI(title="Sloppy API", version="1.0.0")
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.getenv("NEXT_FRONTEND_URL", "http://localhost:3000")],
+    allow_origins=[
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -35,17 +36,21 @@ app.add_middleware(
 # Web sockets
 sio = socketio.AsyncServer(
     async_mode="asgi",
-    cors_allowed_origins=[os.getenv("NEXT_FRONTEND_URL", "http://localhost:3000")],
+    cors_allowed_origins=[
+        "http://localhost:3000",
+    ],
     logger=True,
     # Use Redis as the message queue directly
-    client_manager=socketio.AsyncRedisManager("redis://localhost:6379/0"),
+    client_manager=socketio.AsyncRedisManager("redis://redis:6379/0"),
 )
 
 
 # Socket.IO event handlers
 @sio.event
-async def connect(sid):
-    print(f"Client connected: {sid}")
+async def connect(sid, environ):
+    logger.info("Connection")
+    logger.info(f"Session ID: {sid}")
+    logger.info(f"Origin: {environ.get('HTTP_ORIGIN', 'No origin')}")
     await sio.emit("connected", {"status": "Connected to Sloppy API"}, room=sid)
 
 
@@ -55,21 +60,25 @@ async def disconnect(sid):
 
 
 @sio.event
-async def join_task_room(sid, data):
+async def join_task_room(sid, data):  # Remove 'environ' parameter
     """Join a room to receive updates for a specific task"""
     task_id = data.get("task_id")
+    logger.info(f"🔗 Client {sid} joining room: task_{task_id}")
     if task_id:
         await sio.enter_room(sid, f"task_{task_id}")
         await sio.emit("joined_room", {"task_id": task_id}, room=sid)
+        logger.info(f"✅ Client {sid} successfully joined room: task_{task_id}")
 
 
 @sio.event
-async def leave_task_room(sid, data):
+async def leave_task_room(sid, data):  # Remove 'environ' parameter
     """Leave a task room"""
     task_id = data.get("task_id")
+    logger.info(f"🚪 Client {sid} leaving room: task_{task_id}")
     if task_id:
         await sio.leave_room(sid, f"task_{task_id}")
         await sio.emit("left_room", {"task_id": task_id}, room=sid)
+        logger.info(f"✅ Client {sid} successfully left room: task_{task_id}")
 
 
 # Initialize repository
@@ -193,9 +202,7 @@ async def create_script(script: Script):
 @app.get("/scripts/studio-scripts", response_model=list[Script])
 async def studio_scripts():
     try:
-        logger.info("GETTING SCRIPTS FOR STUDIO PAGE")
         scripts = script_repo.get_scripts_not_in_state(ScriptState.UPLOADED)
-        logger.info(f"SCRIPTS: {scripts}")
         return scripts
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -273,7 +280,9 @@ async def list_scripts_by_state(state: ScriptState):
 
 socket_app = socketio.ASGIApp(sio, app)
 
+__all__ = ["app", "socket_app"]
+
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(socket_app, host="0.0.0.0", port=8000)

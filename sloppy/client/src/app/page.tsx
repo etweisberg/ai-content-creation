@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { apiClient, Script, ScriptState } from "@/lib/api";
-import { useWebSocket } from "@/hooks/useWebSocket";
+import { useWebSocket } from "@/hooks/WebSocket";
 import { ScriptModal } from "@/components/ScriptModal";
 
 const stateIcons = {
@@ -164,6 +164,7 @@ export default function StudioPage() {
       setIsModalOpen(true);
     } catch (err) {
       setError("Failed to load script details");
+      console.error(err);
     }
   };
 
@@ -385,26 +386,10 @@ export default function StudioPage() {
                                 <span className="text-sm font-mono text-[#6b7280]">
                                   {script.id}
                                 </span>
-                                {script.created_at && (
-                                  <span className="text-xs text-[#9ca3af]">
-                                    {new Date(
-                                      script.created_at
-                                    ).toLocaleDateString()}
-                                  </span>
-                                )}
                               </div>
                               <p className="text-sm text-[#1a1a1a] line-clamp-2">
                                 {script.user_prompt}
                               </p>
-                              {(script.script_cost || script.video_cost) && (
-                                <p className="text-xs text-[#6b7280] mt-1">
-                                  Cost: $
-                                  {(
-                                    (script.script_cost || 0) +
-                                    (script.video_cost || 0)
-                                  ).toFixed(2)}
-                                </p>
-                              )}
                             </div>
                           </div>
                         </Card>
