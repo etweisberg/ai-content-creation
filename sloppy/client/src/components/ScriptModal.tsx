@@ -15,6 +15,7 @@ import {
   ArrowUp,
   Check,
   DollarSign,
+  Volume2,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
@@ -27,6 +28,7 @@ interface ScriptModalProps {
   onClose: () => void;
   onScriptUpdate: (script: Script) => void;
   onScriptDelete: (scriptId: string) => void;
+  onTaskStart: (taskId: string, scriptId: string) => void;
 }
 
 const stateConfig = {
@@ -80,6 +82,7 @@ export function ScriptModal({
   onClose,
   onScriptUpdate,
   onScriptDelete,
+  onTaskStart,
 }: ScriptModalProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,6 +125,7 @@ export function ScriptModal({
       setError(null);
 
       const response = await apiClient.generateVideo(script.id, script.script);
+      onTaskStart(response.task_id, script.id);
       console.log("Video generation started:", response.task_id);
 
       // Update script state to producing
@@ -136,6 +140,7 @@ export function ScriptModal({
       );
     } finally {
       setLoading(false);
+      onClose();
     }
   };
 
@@ -150,6 +155,7 @@ export function ScriptModal({
       setError(null);
 
       const response = await apiClient.uploadTikTok(script.video_file);
+      onTaskStart(response.task_id, script.id);
       console.log("Upload started:", response.task_id);
 
       // Update script state to uploading
@@ -162,6 +168,7 @@ export function ScriptModal({
       setError(err instanceof Error ? err.message : "Failed to start upload");
     } finally {
       setLoading(false);
+      onClose();
     }
   };
 
@@ -255,6 +262,29 @@ export function ScriptModal({
                 <pre className="text-sm text-[#1a1a1a] whitespace-pre-wrap font-sans">
                   {script.script}
                 </pre>
+              </div>
+            </div>
+          )}
+
+          {/* Audio Preview */}
+          {script.audio_file && (
+            <div>
+              <h3 className="text-sm font-medium text-[#1a1a1a] mb-2 flex items-center gap-2">
+                <Volume2 className="w-4 h-4" />
+                Audio Preview
+              </h3>
+              <div className="bg-[#fafafa] rounded-lg p-4 border border-[#e0e0e0]">
+                <audio controls className="w-full" preload="metadata">
+                  <source src={script.audio_file} type="audio/mpeg" />
+                  <source src={script.audio_file} type="audio/wav" />
+                  <source src={script.audio_file} type="audio/ogg" />
+                  Your browser does not support the audio element.
+                </audio>
+                <div className="mt-2">
+                  <span className="text-xs text-[#6b7280] font-mono">
+                    {script.audio_file}
+                  </span>
+                </div>
               </div>
             </div>
           )}

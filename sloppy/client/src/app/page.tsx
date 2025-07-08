@@ -12,6 +12,7 @@ import {
   Send,
   RefreshCw,
   Home,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -63,6 +64,13 @@ export default function StudioPage() {
   const [selectedScript, setSelectedScript] = useState<Script | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTasks, setActiveTasks] = useState<Set<string>>(new Set());
+  const [failedTasks, setFailedTasks] = useState<
+    Map<string, { scriptId: string; error: string }>
+  >(new Map());
+  const [taskToScriptMap, setTaskToScriptMap] = useState<Map<string, string>>(
+    new Map()
+  );
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // WebSocket task update handler
   const handleTaskUpdate = useCallback(
@@ -73,64 +81,210 @@ export default function StudioPage() {
     }) => {
       console.log("Task update received:", update);
 
-      if (update.type === "completed") {
-        try {
-          const updatedScript = await apiClient.getScript(update.task_id);
-          setScripts((prev) =>
-            prev.map((script) =>
-              script.id === update.task_id ? updatedScript : script
-            )
-          );
+      const scriptId = taskToScriptMap.get(update.task_id);
 
-          if (selectedScript?.id === update.task_id) {
-            setSelectedScript(updatedScript);
+      if (update.type === "completed") {
+        if (scriptId) {
+          try {
+            const updatedScript = await apiClient.getScript(scriptId);
+            setScripts((prev) =>
+              prev.map((script) =>
+                script.id === scriptId ? updatedScript : script
+              )
+            );
+
+            if (selectedScript?.id === scriptId) {
+              setSelectedScript(updatedScript);
+            }
+
+            // Remove any failed task entries for this script
+            setFailedTasks((prev) => {
+              const newMap = new Map(prev);
+              // Remove all failed tasks for this script
+              for (const [taskId, taskInfo] of newMap.entries()) {
+                if (taskInfo.scriptId === scriptId) {
+                  newMap.delete(taskId);
+                }
+              }
+              return newMap;
+            });
+          } catch (err) {
+            console.error(
+              "Failed to refresh script after task completion:",
+              err
+            );
+            fetchScripts();
           }
-        } catch (err) {
-          console.error("Failed to refresh script after task completion:", err);
-          fetchScripts();
         }
       } else if (update.type === "failed") {
-        setError(`Task ${update.task_id} failed: ${update.error}`);
+        if (scriptId) {
+          // Add to failed tasks with error message and script association
+          setFailedTasks((prev) => {
+            const newMap = new Map(prev);
+            newMap.set(update.task_id, {
+              scriptId: scriptId,
+              error: update.error || "Unknown error",
+            });
+            return newMap;
+          });
+
+          // Show error notification
+          setError(`Task for script ${scriptId} failed: ${update.error}`);
+
+          // Refresh scripts to get the updated state from backend
+          try {
+            await fetchScripts(true); // Skip task rooms to avoid double joining
+          } catch (err) {
+            console.error("Failed to refresh scripts after task failure:", err);
+          }
+        } else {
+          // If we don't know which script this task belongs to, show a generic error
+          setError(`Task ${update.task_id} failed: ${update.error}`);
+        }
       }
 
+      // Remove from active tasks
       setActiveTasks((prev) => {
         const newSet = new Set(prev);
         newSet.delete(update.task_id);
         return newSet;
       });
+
+      // Clean up task mapping
+      setTaskToScriptMap((prev) => {
+        const newMap = new Map(prev);
+        newMap.delete(update.task_id);
+        return newMap;
+      });
     },
-    [selectedScript?.id]
+    [selectedScript?.id, taskToScriptMap]
   );
 
-  const { joinTaskRoom, leaveTaskRoom, isConnected } = useWebSocket({
+  const { joinTaskRoom, leaveTaskRoom, isConnected, connect } = useWebSocket({
     onTaskUpdate: handleTaskUpdate,
   });
 
+  // Helper function to track task-to-script relationship
+  const trackTask = useCallback(
+    (taskId: string, scriptId: string) => {
+      setTaskToScriptMap((prev) => {
+        const newMap = new Map(prev);
+        newMap.set(taskId, scriptId);
+        return newMap;
+      });
+      joinTaskRoom(taskId);
+      setActiveTasks((prev) => new Set(prev).add(taskId));
+    },
+    [joinTaskRoom]
+  );
+
+  // Get failed tasks for a specific script
+  const getScriptFailedTasks = useCallback(
+    (scriptId: string) => {
+      const scriptFailedTasks = [];
+      for (const [taskId, taskInfo] of failedTasks.entries()) {
+        if (taskInfo.scriptId === scriptId) {
+          scriptFailedTasks.push({ taskId, error: taskInfo.error });
+        }
+      }
+      return scriptFailedTasks;
+    },
+    [failedTasks]
+  );
+
+  // Check if a script has any failed tasks
+  const scriptHasFailedTasks = useCallback(
+    (scriptId: string) => {
+      for (const [, taskInfo] of failedTasks.entries()) {
+        if (taskInfo.scriptId === scriptId) {
+          return true;
+        }
+      }
+      return false;
+    },
+    [failedTasks]
+  );
+
   // Fetch scripts from API
-  const fetchScripts = async () => {
+  const fetchScripts = async (skipTaskRooms = false) => {
     try {
       setLoading(true);
       setError(null);
       const data = await apiClient.getStudioScripts();
       setScripts(data);
 
-      // Join task rooms for processing scripts
-      data.forEach((script) => {
-        if (
-          [
-            ScriptState.GENERATING,
-            ScriptState.PRODUCING,
-            ScriptState.UPLOADING,
-          ].includes(script.state)
-        ) {
-          joinTaskRoom(script.id);
-          setActiveTasks((prev) => new Set(prev).add(script.id));
-        }
+      // Clean up failed tasks for scripts that are no longer in processing states
+      setFailedTasks((prev) => {
+        const newMap = new Map();
+        prev.forEach((taskInfo, taskId) => {
+          const script = data.find((s) => s.id === taskInfo.scriptId);
+          // Keep failed task info only if script is still in a processing state
+          if (
+            script &&
+            [
+              ScriptState.GENERATING,
+              ScriptState.PRODUCING,
+              ScriptState.UPLOADING,
+            ].includes(script.state)
+          ) {
+            newMap.set(taskId, taskInfo);
+          }
+        });
+        return newMap;
       });
+
+      // Only join task rooms if not skipping (used during refresh to avoid double joining)
+      if (!skipTaskRooms) {
+        joinActiveTaskRooms(data);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch scripts");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Enhanced refresh that handles WebSocket reconnection
+  const handleRefresh = async () => {
+    try {
+      setIsRefreshing(true);
+      setError(null);
+
+      // First, fetch the latest scripts
+      const data = await apiClient.getStudioScripts();
+      setScripts(data);
+
+      // Clear failed tasks on refresh
+      setFailedTasks(new Map());
+      setTaskToScriptMap(new Map());
+
+      // If WebSocket is not connected, attempt to reconnect
+      if (!isConnected) {
+        console.log("WebSocket not connected, attempting to reconnect...");
+        try {
+          connect();
+          console.log("WebSocket reconnection initiated");
+        } catch (reconnectError) {
+          console.error("Failed to reconnect WebSocket:", reconnectError);
+          setError(
+            "Failed to reconnect to real-time updates. Some features may not work properly."
+          );
+        }
+      }
+
+      // Clear existing active tasks and rejoin rooms for processing scripts
+      setActiveTasks(new Set());
+
+      // Wait a moment for WebSocket to potentially connect before joining rooms
+      setTimeout(() => {
+        joinActiveTaskRooms(data);
+      }, 500);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to refresh scripts"
+      );
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -144,8 +298,9 @@ export default function StudioPage() {
       setError(null);
 
       const response = await apiClient.generateScript(prompt.trim());
-      joinTaskRoom(response.task_id);
-      setActiveTasks((prev) => new Set(prev).add(response.task_id));
+
+      // For script generation, the task_id IS the script ID
+      trackTask(response.task_id, response.task_id);
       setPrompt("");
       await fetchScripts();
     } catch (err) {
@@ -176,25 +331,46 @@ export default function StudioPage() {
     );
     setSelectedScript(updatedScript);
 
-    if (
-      [
-        ScriptState.GENERATING,
-        ScriptState.PRODUCING,
-        ScriptState.UPLOADING,
-      ].includes(updatedScript.state)
-    ) {
-      joinTaskRoom(updatedScript.id);
-      setActiveTasks((prev) => new Set(prev).add(updatedScript.id));
-    }
+    // Note: For actions triggered from the modal (like video generation or upload),
+    // the modal component should call trackTask with the new task ID and script ID
   };
 
   const handleScriptDelete = (scriptId: string) => {
     setScripts((prev) => prev.filter((script) => script.id !== scriptId));
-    leaveTaskRoom(scriptId);
+
+    // Clean up all task-related state for this script
     setActiveTasks((prev) => {
       const newSet = new Set(prev);
-      newSet.delete(scriptId);
+      // Remove all tasks associated with this script
+      for (const [taskId, mappedScriptId] of taskToScriptMap.entries()) {
+        if (mappedScriptId === scriptId) {
+          newSet.delete(taskId);
+          leaveTaskRoom(taskId);
+        }
+      }
       return newSet;
+    });
+
+    setFailedTasks((prev) => {
+      const newMap = new Map(prev);
+      // Remove all failed tasks for this script
+      for (const [taskId, taskInfo] of newMap.entries()) {
+        if (taskInfo.scriptId === scriptId) {
+          newMap.delete(taskId);
+        }
+      }
+      return newMap;
+    });
+
+    setTaskToScriptMap((prev) => {
+      const newMap = new Map(prev);
+      // Remove all task mappings for this script
+      for (const [taskId, mappedScriptId] of newMap.entries()) {
+        if (mappedScriptId === scriptId) {
+          newMap.delete(taskId);
+        }
+      }
+      return newMap;
     });
   };
 
@@ -215,7 +391,7 @@ export default function StudioPage() {
     fetchScripts();
   }, []);
 
-  if (loading) {
+  if (loading && !isRefreshing) {
     return (
       <div className="flex flex-col h-full bg-white">
         <div className="border-b border-[#e0e0e0] p-6">
@@ -261,16 +437,18 @@ export default function StudioPage() {
               {isConnected ? "Connected" : "Disconnected"}
             </div>
             <Button
-              onClick={fetchScripts}
+              onClick={handleRefresh}
               variant="ghost"
               size="sm"
               className="text-[#6b7280] hover:bg-[#f1f1f1]"
-              disabled={loading}
+              disabled={loading || isRefreshing}
             >
               <RefreshCw
-                className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`}
+                className={`w-4 h-4 mr-2 ${
+                  loading || isRefreshing ? "animate-spin" : ""
+                }`}
               />
-              Refresh
+              {isRefreshing ? "Refreshing..." : "Refresh"}
             </Button>
           </div>
         </div>
@@ -289,6 +467,16 @@ export default function StudioPage() {
             >
               Dismiss
             </Button>
+          </div>
+        )}
+
+        {/* WebSocket Status Warning */}
+        {!isConnected && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <p className="text-yellow-700 text-sm">
+              ⚠️ Real-time updates are currently unavailable. Click refresh to
+              reconnect and get the latest updates.
+            </p>
           </div>
         )}
 
@@ -366,34 +554,81 @@ export default function StudioPage() {
                         </p>
                       </Card>
                     ) : (
-                      stateScripts.map((script) => (
-                        <Card
-                          key={script.id}
-                          className="p-4 hover:bg-[#fafafa] cursor-pointer border-[#e0e0e0] transition-colors relative"
-                          onClick={() => handleScriptClick(script)}
-                        >
-                          {activeTasks.has(script.id) && (
-                            <div className="absolute top-2 right-2">
-                              <RefreshCw className="w-3 h-3 animate-spin text-[#6366f1]" />
-                            </div>
-                          )}
-                          <div className="flex items-start gap-3">
-                            <StateIcon
-                              className={`w-4 h-4 mt-1 ${config.color} flex-shrink-0`}
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-2">
-                                <span className="text-sm font-mono text-[#6b7280]">
-                                  {script.id}
-                                </span>
+                      stateScripts.map((script) => {
+                        const scriptFailedTasks = getScriptFailedTasks(
+                          script.id
+                        );
+                        const hasActiveTasks = Array.from(activeTasks).some(
+                          (taskId) => taskToScriptMap.get(taskId) === script.id
+                        );
+
+                        return (
+                          <Card
+                            key={script.id}
+                            className="p-4 hover:bg-[#fafafa] cursor-pointer border-[#e0e0e0] transition-colors relative"
+                            onClick={() => handleScriptClick(script)}
+                          >
+                            {/* Active Task Indicator */}
+                            {hasActiveTasks && (
+                              <div className="absolute top-2 right-2">
+                                <RefreshCw className="w-3 h-3 animate-spin text-[#6366f1]" />
                               </div>
-                              <p className="text-sm text-[#1a1a1a] line-clamp-2">
-                                {script.user_prompt}
-                              </p>
+                            )}
+
+                            {/* Failed Task Indicator */}
+                            {scriptHasFailedTasks(script.id) && (
+                              <div
+                                className="absolute top-2 right-2"
+                                title={`Failed tasks: ${scriptFailedTasks
+                                  .map((t) => t.error)
+                                  .join(", ")}`}
+                              >
+                                <AlertCircle className="w-3 h-3 text-red-500" />
+                              </div>
+                            )}
+
+                            <div className="flex items-start gap-3">
+                              <StateIcon
+                                className={`w-4 h-4 mt-1 ${config.color} flex-shrink-0`}
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <span className="text-sm font-mono text-[#6b7280]">
+                                    {script.id}
+                                  </span>
+                                  {/* Failed task badge */}
+                                  {scriptHasFailedTasks(script.id) && (
+                                    <Badge
+                                      variant="destructive"
+                                      className="text-xs"
+                                    >
+                                      Failed Tasks
+                                    </Badge>
+                                  )}
+                                </div>
+                                <p className="text-sm text-[#1a1a1a] line-clamp-2">
+                                  {script.user_prompt}
+                                </p>
+                                {/* Show error messages for failed tasks */}
+                                {scriptFailedTasks.length > 0 && (
+                                  <div className="mt-1 space-y-1">
+                                    {scriptFailedTasks.map(
+                                      (failedTask, index) => (
+                                        <p
+                                          key={index}
+                                          className="text-xs text-red-600 italic"
+                                        >
+                                          Task failed: {failedTask.error}
+                                        </p>
+                                      )
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        </Card>
-                      ))
+                          </Card>
+                        );
+                      })
                     )}
                   </div>
                 </div>
@@ -409,6 +644,7 @@ export default function StudioPage() {
         onClose={closeModal}
         onScriptUpdate={handleScriptUpdate}
         onScriptDelete={handleScriptDelete}
+        onTaskStart={trackTask} // Pass the trackTask function to the modal
       />
     </div>
   );

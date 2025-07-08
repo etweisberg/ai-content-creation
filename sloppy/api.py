@@ -151,6 +151,7 @@ async def create_script_generation_task(request: ScriptGenerationRequest):
 async def create_video_generation_task(request: VideoGenerationRequest):
     """Create a new video generation task"""
     try:
+        script_repo.update_script(request.script_id, {"state": ScriptState.GENERATING})
         task = generate_video.delay(request.script_id, request.script, request.settings)  # type: ignore
         return {
             "task_id": task.id,

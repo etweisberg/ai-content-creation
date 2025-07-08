@@ -9,7 +9,7 @@ import av
 from huggingface_hub import InferenceClient
 
 from sloppy.celery_app import app
-from sloppy.db.script_model import ScriptRepository
+from sloppy.db.script_model import ScriptRepository, ScriptState
 from sloppy.socketio_client import emit_task_completed, emit_task_failed
 from sloppy.utils import load_envs
 
@@ -137,7 +137,7 @@ def concatenate_audio_segments(
         first_stream = first_container.streams.audio[0]
 
         # Create output container and stream
-        output_container = av.open(output_path, "w")
+        output_container = av.open(f"{output_path}.{output_format}", "w")
         output_stream = output_container.add_stream(
             codec_name="pcm_s16le", rate=first_stream.rate
         )
@@ -254,7 +254,9 @@ def generate_video(self, script_id, script, settings):
         print(f"✅ Audio saved to temporary file: {audio_path}")
         print(f"   File size: {os.path.getsize(audio_path)} bytes")
 
-        script_mongo.update_script(script_id, {"audio_file": audio_path})
+        script_mongo.update_script(
+            script_id, {"audio_file": audio_path, "state": ScriptState.PRODUCED}
+        )
 
         emit_task_completed(task_id)
 
@@ -263,5 +265,8 @@ def generate_video(self, script_id, script, settings):
     except Exception as e:
         print(f"❌ Error generating video: {e}")
         traceback.print_exc()
+
+        script_mongo.update_script(script_id, {"state": ScriptState.GENERATED})
+
         emit_task_failed(task_id, str(e))
         return False
