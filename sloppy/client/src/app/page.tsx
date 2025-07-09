@@ -291,7 +291,7 @@ export default function StudioPage() {
       if (!isConnected) {
         console.log("WebSocket not connected, attempting to reconnect...");
         try {
-          connect();
+          await connect();
           console.log("WebSocket reconnection initiated");
         } catch (reconnectError) {
           console.error("Failed to reconnect WebSocket:", reconnectError);
@@ -315,7 +315,7 @@ export default function StudioPage() {
     } finally {
       setIsRefreshing(false);
     }
-  }, [apiClient, connect, isConnected, joinActiveTaskRooms]);
+  }, [connect, isConnected, joinActiveTaskRooms]);
 
   // Event handlers
   const handleSubmit = async (e: React.FormEvent) => {
@@ -425,7 +425,12 @@ export default function StudioPage() {
         console.log(
           "Socket not connected during initial load, attempting to connect..."
         );
-        connect();
+        try {
+          await connect();
+          console.log("Connection attempt completed");
+        } catch (error) {
+          console.error("Failed to connect during initial load:", error);
+        }
 
         // Give it another moment to connect, then fetch scripts
         await new Promise((resolve) => setTimeout(resolve, 1000));

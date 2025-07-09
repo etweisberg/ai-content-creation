@@ -23,27 +23,55 @@ export function useWebSocket({
   const activeTasksRef = useRef<Set<string>>(new Set());
   const isInitializedRef = useRef(false);
 
-  const connect = useCallback(() => {
-    if (!isSocketInstance(socket)) {
-      console.warn("Socket not available (likely SSR environment)");
-      return;
+  const connect = useCallback(async () => {
+    let socketToUse = socket;
+    
+    if (!isSocketInstance(socketToUse)) {
+      console.warn("Socket not available, attempting to initialize...");
+      // Wait for socket to initialize if we're in the browser
+      if (typeof window !== "undefined") {
+        console.log("Waiting for socket to initialize...");
+        try {
+          // Import the socket promise and wait for it to resolve
+          const { socketPromise } = await import("@/lib/socket");
+          socketToUse = await socketPromise;
+          
+          if (!isSocketInstance(socketToUse)) {
+            console.error("Socket failed to initialize");
+            return;
+          }
+        } catch (error) {
+          console.error("Error initializing socket:", error);
+          return;
+        }
+      } else {
+        return;
+      }
     }
 
-    if (socket.connected || isInitializedRef.current) return;
+    if (socketToUse.connected) return;
+
+    // Reset initialization flag if socket is not connected
+    // This allows reconnection attempts
+    if (!socketToUse.connected) {
+      isInitializedRef.current = false;
+    }
+
+    if (isInitializedRef.current) return;
 
     console.log("🔌 Initializing WebSocket connection...");
     isInitializedRef.current = true;
 
     // Set up event listeners
-    socket.on("connect", () => {
+    socketToUse.on("connect", () => {
       console.log("✅ WebSocket connected");
       setIsConnected(true);
 
       // Rejoin all active task rooms after reconnection
       activeTasksRef.current.forEach((taskId) => {
-        if (socket != null) {
+        if (socketToUse != null) {
           console.log(`🔄 Rejoining task room: ${taskId}`);
-          socket.emit("join_task_room", { task_id: taskId });
+          socketToUse.emit("join_task_room", { task_id: taskId });
         } else {
           console.error("Socket null");
         }
@@ -52,18 +80,18 @@ export function useWebSocket({
       onConnect?.();
     });
 
-    socket.on("disconnect", () => {
+    socketToUse.on("disconnect", () => {
       console.log("❌ WebSocket disconnected");
       setIsConnected(false);
       onDisconnect?.();
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    socket.on("connected", (data: any) => {
+    socketToUse.on("connected", (data: any) => {
       console.log("🎉 Server confirmed connection:", data);
     });
 
-    socket.on("task_update", (update: TaskUpdate) => {
+    socketToUse.on("task_update", (update: TaskUpdate) => {
       console.log("📨 Task update received:");
       console.log("   Task ID:", update.task_id);
       console.log("   Type:", update.type);
@@ -73,28 +101,28 @@ export function useWebSocket({
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    socket.on("joined_room", (data: { task_id: any }) => {
+    socketToUse.on("joined_room", (data: { task_id: any }) => {
       console.log("🚪 Joined task room:", data.task_id);
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    socket.on("left_room", (data: { task_id: any }) => {
+    socketToUse.on("left_room", (data: { task_id: any }) => {
       console.log("🚪 Left task room:", data.task_id);
     });
 
     // Add debugging for any message
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    socket.onAny((eventName: string, ...args: any[]) => {
+    socketToUse.onAny((eventName: string, ...args: any[]) => {
       console.log(`📡 Socket event '${eventName}':`, args);
     });
 
     // Connect if not already connected
-    if (!socket.connected) {
-      socket.connect();
+    if (!socketToUse.connected) {
+      socketToUse.connect();
     }
 
     // Set initial connection state
-    setIsConnected(socket.connected);
+    setIsConnected(socketToUse.connected);
   }, []); // Empty dependency array!
 
   const disconnect = useCallback(() => {
@@ -196,7 +224,17 @@ export function useWebSocket({
     if (typeof window === "undefined") return;
 
     console.log("🚀 WebSocket hook mounting - initializing connection");
-    connect();
+    
+    // Handle async connect function
+    const initializeConnection = async () => {
+      try {
+        await connect();
+      } catch (error) {
+        console.error("Failed to initialize connection:", error);
+      }
+    };
+    
+    initializeConnection();
 
     // Cleanup ONLY on component unmount
     return () => {
