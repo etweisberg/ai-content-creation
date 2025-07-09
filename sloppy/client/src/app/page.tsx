@@ -201,6 +201,7 @@ export default function StudioPage() {
   // Fetch scripts from API
   const fetchScripts = useCallback(
     async (skipTaskRooms = false) => {
+      console.log(`FETCH SCRIPTS WITH FLAG: ${skipTaskRooms}`);
       try {
         setLoading(true);
         setError(null);
@@ -229,7 +230,10 @@ export default function StudioPage() {
 
         // Only join task rooms if not skipping (used during refresh to avoid double joining)
         if (!skipTaskRooms) {
-          joinActiveTaskRooms(data);
+          // Wait a moment for WebSocket to potentially connect before joining rooms
+          setTimeout(() => {
+            joinActiveTaskRooms(data);
+          }, 500);
         }
       } catch (err) {
         setError(
@@ -270,7 +274,7 @@ export default function StudioPage() {
   );
 
   // Enhanced refresh that handles WebSocket reconnection
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     try {
       setIsRefreshing(true);
       setError(null);
@@ -311,7 +315,7 @@ export default function StudioPage() {
     } finally {
       setIsRefreshing(false);
     }
-  };
+  }, [apiClient, connect, isConnected, joinActiveTaskRooms]);
 
   // Event handlers
   const handleSubmit = async (e: React.FormEvent) => {
@@ -411,10 +415,39 @@ export default function StudioPage() {
     return acc;
   }, {} as Record<ScriptState, Script[]>);
 
-  // Load scripts on mount
+  // Load scripts on mount with socket connection handling
   useEffect(() => {
-    fetchScripts();
-  }, [fetchScripts]);
+    const initializeAndFetch = async () => {
+      // Wait a moment for socket to initialize before fetching scripts
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      if (!isConnected) {
+        console.log(
+          "Socket not connected during initial load, attempting to connect..."
+        );
+        connect();
+
+        // Give it another moment to connect, then fetch scripts
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+
+      fetchScripts();
+    };
+
+    initializeAndFetch();
+  }, []);
+
+  // Auto-retry connection when disconnected (separate from initial load)
+  useEffect(() => {
+    if (!loading && !isConnected && !isRefreshing) {
+      console.log("Detected disconnected state, attempting automatic retry...");
+      const timeout = setTimeout(() => {
+        handleRefresh();
+      }, 1000);
+
+      return () => clearTimeout(timeout);
+    }
+  }, [isConnected, loading, isRefreshing, handleRefresh]);
 
   if (loading && !isRefreshing) {
     return (
