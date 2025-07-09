@@ -150,6 +150,9 @@ export default function StudioPage() {
         return newSet;
       });
 
+      // Leave the task room to clean up WebSocket tracking
+      leaveTaskRoom(update.task_id);
+
       // Clean up task mapping
       setTaskToScriptMap((prev) => {
         const newMap = new Map(prev);
@@ -173,7 +176,7 @@ export default function StudioPage() {
     });
     joinTaskRoom(taskId);
     setActiveTasks((prev) => new Set(prev).add(taskId));
-  }, []);
+  }, [joinTaskRoom]);
 
   // Join task rooms for active scripts
   const joinActiveTaskRooms = useCallback(
