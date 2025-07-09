@@ -171,7 +171,7 @@ async def create_video_generation_task(request: VideoGenerationRequest):
 async def create_tiktok_upload_task(request: TikTokUploadRequest):
     """Create a new TikTok upload task"""
     try:
-        task = upload_tiktok.delay(
+        task = upload_tiktok.delay(  # type: ignore
             request.script_id, request.video_path, request.metadata
         )  # type: ignore
         script_repo.update_script(
