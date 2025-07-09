@@ -254,6 +254,7 @@ End your response with the complete script in [S1]/[S2] format."""
                 task_id,
                 response_dict,
             )
+            script_mongo.clear_active_task(task_id)
             emit_task_completed(task_id)
             return response_dict
         else:
@@ -263,6 +264,7 @@ End your response with the complete script in [S1]/[S2] format."""
     except Exception as e:
         print(f"❌ Error: {e}")
         traceback.print_exc()
+        script_mongo.clear_active_task(task_id)
         emit_task_failed(task_id, f"SCRIPT_GENERATION_FAILED: {str(e)}")
         return {
             "error": f"SCRIPT_GENERATION_FAILED: {str(e)}",

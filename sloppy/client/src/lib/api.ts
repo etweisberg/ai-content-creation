@@ -13,6 +13,7 @@ export interface Script {
   video_file?: string;
   created_at?: string;
   updated_at?: string;
+  active_task_id?: string;
 }
 
 export enum ScriptState {
@@ -105,13 +106,14 @@ export class ApiClient {
   }
 
   async uploadTikTok(
+    scriptId: string,
     videoPath: string,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     metadata: any = {}
   ): Promise<{ task_id: string }> {
     return this.fetch("/tasks/upload-tiktok", {
       method: "POST",
-      body: JSON.stringify({ video_path: videoPath, metadata }),
+      body: JSON.stringify({ script_id: scriptId, video_path: videoPath, metadata }),
     });
   }
 

@@ -83,7 +83,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NODE_ENV=development
+      - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=http://localhost:8000
       - DATABASE_URL=mongodb://admin:password@mongodb:27017
       - REDIS_URL=redis://redis:6379
@@ -98,7 +98,6 @@ services:
       - redis
       - api
     restart: unless-stopped
-    command: npm run dev
 
 volumes:
   redis_data:

@@ -257,6 +257,7 @@ def generate_video(self, script_id, script, settings):
         script_mongo.update_script(
             script_id, {"audio_file": audio_path, "state": ScriptState.PRODUCED}
         )
+        script_mongo.clear_active_task(script_id)
 
         emit_task_completed(task_id)
 
@@ -267,6 +268,7 @@ def generate_video(self, script_id, script, settings):
         traceback.print_exc()
 
         script_mongo.update_script(script_id, {"state": ScriptState.GENERATED})
+        script_mongo.clear_active_task(script_id)
 
         emit_task_failed(task_id, str(e))
         return False

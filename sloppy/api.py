@@ -97,6 +97,7 @@ class VideoGenerationRequest(BaseModel):
 
 
 class TikTokUploadRequest(BaseModel):
+    script_id: str
     video_path: str
     metadata: dict[str, Any] | None = {}
 
@@ -135,7 +136,10 @@ async def create_script_generation_task(request: ScriptGenerationRequest):
 
         # Create script document in database
         script = Script(
-            id=task_id, user_prompt=request.topic, state=ScriptState.GENERATING
+            id=task_id,
+            user_prompt=request.topic,
+            state=ScriptState.GENERATING,
+            active_task_id=task_id,
         )
         script_repo.create_script(script)
 
@@ -151,8 +155,11 @@ async def create_script_generation_task(request: ScriptGenerationRequest):
 async def create_video_generation_task(request: VideoGenerationRequest):
     """Create a new video generation task"""
     try:
-        script_repo.update_script(request.script_id, {"state": ScriptState.GENERATING})
         task = generate_video.delay(request.script_id, request.script, request.settings)  # type: ignore
+        script_repo.update_script(
+            request.script_id,
+            {"state": ScriptState.PRODUCING, "active_task_id": task.id},
+        )
         return {
             "task_id": task.id,
         }
@@ -164,7 +171,13 @@ async def create_video_generation_task(request: VideoGenerationRequest):
 async def create_tiktok_upload_task(request: TikTokUploadRequest):
     """Create a new TikTok upload task"""
     try:
-        task = upload_tiktok.delay(request.video_path, request.metadata)  # type: ignore
+        task = upload_tiktok.delay(
+            request.script_id, request.video_path, request.metadata
+        )  # type: ignore
+        script_repo.update_script(
+            request.script_id,
+            {"state": ScriptState.UPLOADING, "active_task_id": task.id},
+        )
         return {"task_id": task.id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

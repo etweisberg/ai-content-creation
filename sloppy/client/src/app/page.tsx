@@ -165,17 +165,81 @@ export default function StudioPage() {
   });
 
   // Helper function to track task-to-script relationship
-  const trackTask = useCallback(
-    (taskId: string, scriptId: string) => {
-      setTaskToScriptMap((prev) => {
-        const newMap = new Map(prev);
-        newMap.set(taskId, scriptId);
-        return newMap;
+  const trackTask = useCallback((taskId: string, scriptId: string) => {
+    setTaskToScriptMap((prev) => {
+      const newMap = new Map(prev);
+      newMap.set(taskId, scriptId);
+      return newMap;
+    });
+    joinTaskRoom(taskId);
+    setActiveTasks((prev) => new Set(prev).add(taskId));
+  }, []);
+
+  // Join task rooms for active scripts
+  const joinActiveTaskRooms = useCallback(
+    (scriptList: Script[]) => {
+      scriptList.forEach((script) => {
+        if (
+          [
+            ScriptState.GENERATING,
+            ScriptState.PRODUCING,
+            ScriptState.UPLOADING,
+          ].includes(script.state) &&
+          script.active_task_id
+        ) {
+          // Use the active_task_id to join the WebSocket room
+          console.log(
+            `Script ${script.id} is in processing state: ${script.state} with active task: ${script.active_task_id}`
+          );
+          trackTask(script.active_task_id, script.id);
+        }
       });
-      joinTaskRoom(taskId);
-      setActiveTasks((prev) => new Set(prev).add(taskId));
     },
-    [joinTaskRoom]
+    [trackTask]
+  );
+
+  // Fetch scripts from API
+  const fetchScripts = useCallback(
+    async (skipTaskRooms = false) => {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await apiClient.getStudioScripts();
+        setScripts(data);
+
+        // Clean up failed tasks for scripts that are no longer in processing states
+        setFailedTasks((prev) => {
+          const newMap = new Map();
+          prev.forEach((taskInfo, taskId) => {
+            const script = data.find((s) => s.id === taskInfo.scriptId);
+            // Keep failed task info only if script is still in a processing state
+            if (
+              script &&
+              [
+                ScriptState.GENERATING,
+                ScriptState.PRODUCING,
+                ScriptState.UPLOADING,
+              ].includes(script.state)
+            ) {
+              newMap.set(taskId, taskInfo);
+            }
+          });
+          return newMap;
+        });
+
+        // Only join task rooms if not skipping (used during refresh to avoid double joining)
+        if (!skipTaskRooms) {
+          joinActiveTaskRooms(data);
+        }
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to fetch scripts"
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [joinActiveTaskRooms]
   );
 
   // Get failed tasks for a specific script
@@ -204,45 +268,6 @@ export default function StudioPage() {
     },
     [failedTasks]
   );
-
-  // Fetch scripts from API
-  const fetchScripts = async (skipTaskRooms = false) => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await apiClient.getStudioScripts();
-      setScripts(data);
-
-      // Clean up failed tasks for scripts that are no longer in processing states
-      setFailedTasks((prev) => {
-        const newMap = new Map();
-        prev.forEach((taskInfo, taskId) => {
-          const script = data.find((s) => s.id === taskInfo.scriptId);
-          // Keep failed task info only if script is still in a processing state
-          if (
-            script &&
-            [
-              ScriptState.GENERATING,
-              ScriptState.PRODUCING,
-              ScriptState.UPLOADING,
-            ].includes(script.state)
-          ) {
-            newMap.set(taskId, taskInfo);
-          }
-        });
-        return newMap;
-      });
-
-      // Only join task rooms if not skipping (used during refresh to avoid double joining)
-      if (!skipTaskRooms) {
-        joinActiveTaskRooms(data);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch scripts");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // Enhanced refresh that handles WebSocket reconnection
   const handleRefresh = async () => {
@@ -389,7 +414,7 @@ export default function StudioPage() {
   // Load scripts on mount
   useEffect(() => {
     fetchScripts();
-  }, []);
+  }, [fetchScripts]);
 
   if (loading && !isRefreshing) {
     return (
@@ -558,9 +583,9 @@ export default function StudioPage() {
                         const scriptFailedTasks = getScriptFailedTasks(
                           script.id
                         );
-                        const hasActiveTasks = Array.from(activeTasks).some(
-                          (taskId) => taskToScriptMap.get(taskId) === script.id
-                        );
+                        const hasActiveTasks =
+                          script.active_task_id &&
+                          activeTasks.has(script.active_task_id);
 
                         return (
                           <Card

@@ -38,6 +38,9 @@ class Script(BaseModel):
     state: ScriptState = Field(
         default=ScriptState.GENERATING, description="Current processing state"
     )
+    active_task_id: str | None = Field(
+        default=None, description="ID of currently active task for this script"
+    )
 
     class Config:
         use_enum_values = True
@@ -117,6 +120,13 @@ class ScriptRepository:
         """Get all scripts"""
         docs = self.collection.find()
         return [Script.from_mongo_dict(doc) for doc in docs]
+
+    def clear_active_task(self, script_id: str) -> bool:
+        """Clear the active_task_id for a script"""
+        result = self.collection.update_one(
+            {"_id": script_id}, {"$unset": {"active_task_id": ""}}
+        )
+        return result.modified_count > 0
 
     def test_connection(self) -> bool:
         """Test if the database connection is working"""

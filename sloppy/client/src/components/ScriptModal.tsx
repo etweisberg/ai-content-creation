@@ -128,10 +128,7 @@ export function ScriptModal({
       onTaskStart(response.task_id, script.id);
       console.log("Video generation started:", response.task_id);
 
-      // Update script state to producing
-      await apiClient.updateScript(script.id, { state: ScriptState.PRODUCING });
-
-      // Refresh script data
+      // The backend handles state updates, just refresh script data
       const updatedScript = await apiClient.getScript(script.id);
       onScriptUpdate(updatedScript);
     } catch (err) {
@@ -154,14 +151,11 @@ export function ScriptModal({
       setLoading(true);
       setError(null);
 
-      const response = await apiClient.uploadTikTok(script.video_file);
+      const response = await apiClient.uploadTikTok(script.id, script.video_file);
       onTaskStart(response.task_id, script.id);
       console.log("Upload started:", response.task_id);
 
-      // Update script state to uploading
-      await apiClient.updateScript(script.id, { state: ScriptState.UPLOADING });
-
-      // Refresh script data
+      // The backend handles state updates, just refresh script data
       const updatedScript = await apiClient.getScript(script.id);
       onScriptUpdate(updatedScript);
     } catch (err) {
