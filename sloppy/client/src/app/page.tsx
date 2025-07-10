@@ -127,9 +127,11 @@ export default function StudioPage() {
             });
             return newMap;
           });
+          console.log("Failed tasks:", failedTasks);
 
           // Show error notification
           setError(`Task for script ${scriptId} failed: ${update.error}`);
+          console.error(error);
 
           // Refresh scripts to get the updated state from backend
           try {
@@ -168,15 +170,18 @@ export default function StudioPage() {
   });
 
   // Helper function to track task-to-script relationship
-  const trackTask = useCallback((taskId: string, scriptId: string) => {
-    setTaskToScriptMap((prev) => {
-      const newMap = new Map(prev);
-      newMap.set(taskId, scriptId);
-      return newMap;
-    });
-    joinTaskRoom(taskId);
-    setActiveTasks((prev) => new Set(prev).add(taskId));
-  }, [joinTaskRoom]);
+  const trackTask = useCallback(
+    (taskId: string, scriptId: string) => {
+      setTaskToScriptMap((prev) => {
+        const newMap = new Map(prev);
+        newMap.set(taskId, scriptId);
+        return newMap;
+      });
+      joinTaskRoom(taskId);
+      setActiveTasks((prev) => new Set(prev).add(taskId));
+    },
+    [joinTaskRoom]
+  );
 
   // Join task rooms for active scripts
   const joinActiveTaskRooms = useCallback(
@@ -207,29 +212,8 @@ export default function StudioPage() {
       console.log(`FETCH SCRIPTS WITH FLAG: ${skipTaskRooms}`);
       try {
         setLoading(true);
-        setError(null);
         const data = await apiClient.getStudioScripts();
         setScripts(data);
-
-        // Clean up failed tasks for scripts that are no longer in processing states
-        setFailedTasks((prev) => {
-          const newMap = new Map();
-          prev.forEach((taskInfo, taskId) => {
-            const script = data.find((s) => s.id === taskInfo.scriptId);
-            // Keep failed task info only if script is still in a processing state
-            if (
-              script &&
-              [
-                ScriptState.GENERATING,
-                ScriptState.PRODUCING,
-                ScriptState.UPLOADING,
-              ].includes(script.state)
-            ) {
-              newMap.set(taskId, taskInfo);
-            }
-          });
-          return newMap;
-        });
 
         // Only join task rooms if not skipping (used during refresh to avoid double joining)
         if (!skipTaskRooms) {

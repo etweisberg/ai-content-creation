@@ -5,6 +5,8 @@ from typing import Any, TypedDict
 
 from langchain_community.callbacks.manager import get_openai_callback
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langfuse import get_client
+from langfuse.langchain import CallbackHandler
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from open_deep_research.multi_agent import supervisor_builder
@@ -162,18 +164,24 @@ except Exception as e:
 
 
 # Script generation task
+langfuse_client = get_client()
+langfuse_handler = CallbackHandler()
+
+
 @app.task(bind=True)
 def generate_news_script(self, topic):
     """Generate news script"""
     load_envs()
     task_id = self.request.id
+    print(f"\n🚀 Starting script generation for topic: {topic}")
+    # Fetch the script-gen prompt from Langfuse managed prompts
     try:
-        print(f"\n🚀 Starting script generation for topic: {topic}")
-
-        # Create messages
-        messages = [
-            SystemMessage(
-                content="""
+        langfuse = get_client()
+        script_gen_prompt = langfuse.get_prompt("script-gen").prompt
+        print(f"✅ Script-gen prompt fetched from Langfuse: {script_gen_prompt}")
+    except Exception as e:
+        print(f"❌ Could not fetch script-gen prompt from Langfuse: {e}")
+        script_gen_prompt = """
 You are an AI agent tasked with generating a script for a news podcast.
 You have the ability to search the internet using tavily.
 
@@ -214,28 +222,28 @@ conversation
 - Avoid complex sentence structures that are hard to pronounce
 
 End your response with the complete script in [S1]/[S2] format."""
-            ),
-            HumanMessage(
-                content=f"Generate a complete news podcast script about {topic}. "
-                "Create a heated debate between two co-hosts."
-            ),
-        ]
+    messages = [
+        SystemMessage(content=script_gen_prompt),
+        HumanMessage(
+            content=f"Generate a complete news podcast script about {topic}. "
+            "Create a heated debate between two co-hosts."
+        ),
+    ]
+    input_dict = {"messages": messages, "final_script": None, "script_ready": False}
 
-        # Create input
-        input_dict = {"messages": messages, "final_script": None, "script_ready": False}
+    async def run_async():
+        config = {
+            "configurable": {"thread_id": str(uuid.uuid4())},
+            "callbacks": [langfuse_handler],
+        }
+        response = await asyncio.wait_for(
+            agent.ainvoke(input_dict, config=config),  # type: ignore
+            timeout=300,
+        )
+        return response
 
-        # Run the agent
-        async def run_async():
-            config = {"configurable": {"thread_id": str(uuid.uuid4())}}
-            response = await asyncio.wait_for(
-                agent.ainvoke(input_dict, config=config),  # type: ignore
-                timeout=300,
-            )
-            return response
-
+    try:
         result = asyncio.run(run_async())
-
-        # Extract script
         if (
             result
             and result.get("script_ready")
@@ -248,6 +256,7 @@ End your response with the complete script in [S1]/[S2] format."""
                 "script": script,
                 "state": ScriptState.GENERATED,
                 "script_cost": cost,
+                "success": True,
             }
             print(f"✅ Script generated: {len(script)} characters")
             script_mongo.update_script(
@@ -260,7 +269,6 @@ End your response with the complete script in [S1]/[S2] format."""
         else:
             emit_task_failed(task_id, "ValueError - Script generation failed")
             raise ValueError("Script generation failed")
-
     except Exception as e:
         print(f"❌ Error: {e}")
         traceback.print_exc()
@@ -269,4 +277,5 @@ End your response with the complete script in [S1]/[S2] format."""
         return {
             "error": f"SCRIPT_GENERATION_FAILED: {str(e)}",
             "cost": 0.0,
+            "success": False,
         }
