@@ -1,0 +1,107 @@
+version: "3.8"
+
+services:
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=password
+    volumes:
+      - mongo_db:/data/db
+      - mongo_data:/data/configdb
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.celery
+    depends_on:
+      - redis
+      - mongodb
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    volumes:
+      - ./sloppy:/app/sloppy
+      - ./.env:/app/.env
+      - av_output:/app/av_output
+    command: uv run celery -A sloppy.celery_app worker --loglevel=info -E
+
+  flower:
+    build:
+      context: .
+      dockerfile: Dockerfile.celery
+    depends_on:
+      - redis
+      - celery-worker
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    volumes:
+      - ./sloppy:/app/sloppy
+      - ./.env:/app/.env
+    ports:
+      - "5555:5555"
+    command: uv run celery -A sloppy.celery_app flower --basic-auth=admin:password --port=5555 --address=0.0.0.0
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - MONGODB_URI=mongodb://admin:password@mongodb:27017
+      - DATABASE_NAME=sloppy
+    volumes:
+      - ./sloppy:/app/sloppy
+      - ./.env:/app/.env
+      - av_output:/app/av_output
+    depends_on:
+      - mongodb
+      - redis
+      - celery-worker
+    restart: unless-stopped
+
+  nextjs-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - DATABASE_URL=mongodb://admin:password@mongodb:27017
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./sloppy/client:/app
+      - /app/node_modules
+      - /app/.next
+      - ./.env:/app.env
+      - av_output:/app/av_output
+    depends_on:
+      - mongodb
+      - redis
+      - api
+    command: npm run dev
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  mongo_data:
+  mongo_db:
+  av_output:

@@ -12,4 +12,4 @@ def load_envs():
     # Checking keys
     print(f"OPENAI_API_KEY loaded: {'OPENAI_API_KEY' in os.environ}")
     print(f"TAVILY_API_KEY loaded: {'TAVILY_API_KEY' in os.environ}")
-    print(f"HF_TOKEN loaded: {'HF_TOKEN' in os.environ}")
+    print(f"FAL_KEY loaded: {'FAL_KEY' in os.environ}")

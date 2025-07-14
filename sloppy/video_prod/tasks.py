@@ -16,18 +16,9 @@ logger = logging.getLogger(__name__)
 script_repository = ScriptRepository()
 langfuse = get_client()
 
-kokoro_tts_rate_per_thousand_characters = 0.02
-
-
-def calculate_tts_cost_in_dollars(text_content: str) -> float:
-    character_count = len(text_content)
-    return (character_count / 1000) * kokoro_tts_rate_per_thousand_characters
-
 
 @observe(name="tts_generation")
 def generate_audio_from_text(text_content: str) -> tuple[str, float]:
-    character_count = len(text_content)
-    estimated_cost_dollars = calculate_tts_cost_in_dollars(text_content)
     generation_start_time = datetime.now()
 
     def on_queue_update(update):
@@ -37,29 +28,32 @@ def generate_audio_from_text(text_content: str) -> tuple[str, float]:
 
     # Use the correct endpoint and subscribe pattern
     tts_result = fal_client.subscribe(
-        "fal-ai/kokoro/american-english",
-        arguments={"prompt": text_content},
+        "fal-ai/playai/tts/dialog",
+        arguments={"input": text_content},
         with_logs=True,
         on_queue_update=on_queue_update,
     )
     logger.info(f"TTS subscribe result: {tts_result}")
-    # The result should have an 'audio' dict with a 'url'
+    # The result should have an 'audio' dict with a 'url' and 'duration'
     audio_url = tts_result["audio"]["url"]
+    audio_duration_seconds = tts_result["audio"].get("duration", 0)
+    audio_duration_minutes = audio_duration_seconds / 60.0
+    estimated_cost_dollars = 0.05 * audio_duration_minutes
     processing_duration_seconds = (
         datetime.now() - generation_start_time
     ).total_seconds()
 
     langfuse.update_current_generation(
-        model="fal-ai/kokoro/american-english",
+        model="fal-ai/playai/tts/dialog",
         input=text_content,
         output=f"Generated audio at {audio_url}",
         cost_details={"total": estimated_cost_dollars},
-        usage_details={"input": character_count},
+        usage_details={"audio_duration_seconds": audio_duration_seconds},
         metadata={
             "provider": "fal-ai",
             "processing_time_seconds": processing_duration_seconds,
-            "character_count": character_count,
-            "cost_per_1k_chars": kokoro_tts_rate_per_thousand_characters,
+            "audio_duration_seconds": audio_duration_seconds,
+            "cost_per_minute": 0.05,
         },
     )
     return audio_url, estimated_cost_dollars

@@ -27,7 +27,9 @@ else:
 
 # Define structured output schema for the script
 class ScriptLine(BaseModel):
-    speaker: str = Field(description="Either 'S1' or 'S2' to identify the speaker")
+    speaker: str = Field(
+        description="Either 'Speaker 1:' or 'Speaker 2:' to identify the speaker"
+    )
     line_content: str = Field(description="The actual content/dialogue for this line")
 
 
@@ -39,10 +41,10 @@ class PodcastScript(BaseModel):
     )
 
     def to_formatted_script(self) -> str:
-        """Convert structured script to the desired [S1]/[S2] format"""
+        """Convert structured script to the desired Speaker 1:/Speaker 2: format"""
         formatted_lines = []
         for line in self.script_lines:
-            formatted_lines.append(f"[{line.speaker}] {line.line_content}")
+            formatted_lines.append(f"{line.speaker} {line.line_content}")
         return "\n".join(formatted_lines)
 
 
@@ -66,7 +68,7 @@ def extract_structured_script(state: ScriptGenerationState) -> dict[str, Any]:
         if (
             isinstance(message, AIMessage)
             and message.content
-            and "[S1]" in message.content
+            and ("Speaker 1:" in message.content or "Speaker 2:" in message.content)
         ):
             content = message.content
             print(f"   Found script in AIMessage (length: {len(content)} chars)")
@@ -77,9 +79,13 @@ def extract_structured_script(state: ScriptGenerationState) -> dict[str, Any]:
 
             for line in lines:
                 line = line.strip()
-                if line.startswith("[S1]") or line.startswith("[S2]"):
-                    speaker = "S1" if line.startswith("[S1]") else "S2"
-                    line_content = line[4:].strip()  # Remove '[S1] ' or '[S2] '
+                if line.startswith("Speaker 1:") or line.startswith("Speaker 2:"):
+                    speaker = (
+                        "Speaker 1:" if line.startswith("Speaker 1:") else "Speaker 2:"
+                    )
+                    line_content = line[
+                        len(speaker) :
+                    ].strip()  # Remove 'Speaker 1:' or 'Speaker 2:'
                     if line_content:
                         script_lines.append(
                             ScriptLine(speaker=speaker, line_content=line_content)
@@ -174,54 +180,11 @@ def generate_news_script(self, topic):
     load_envs()
     task_id = self.request.id
     print(f"\n🚀 Starting script generation for topic: {topic}")
-    # Fetch the script-gen prompt from Langfuse managed prompts
-    try:
-        langfuse = get_client()
-        script_gen_prompt = langfuse.get_prompt("script-gen").prompt
-        print(f"✅ Script-gen prompt fetched from Langfuse: {script_gen_prompt}")
-    except Exception as e:
-        print(f"❌ Could not fetch script-gen prompt from Langfuse: {e}")
-        script_gen_prompt = """
-You are an AI agent tasked with generating a script for a news podcast.
-You have the ability to search the internet using tavily.
 
-Your ONLY job is to generate a complete podcast script about the requested topic.
-The script MUST be in this EXACT format:
-[S1] First speaker's dialogue
-[S2] Second speaker's dialogue
-[S1] More from first speaker
-[S2] More from second speaker
+    langfuse = get_client()
+    script_gen_prompt = langfuse.get_prompt("script-gen").prompt
+    print(f"✅ Script-gen prompt fetched from Langfuse: {script_gen_prompt}")
 
-REQUIREMENTS:
-- Generate a heated but professional debate between two news co-hosts
-- Minimum 15 exchanges between speakers
-- Use ONLY [S1] and [S2] as speaker identifiers
-- Make it engaging and argumentative while professional
-- Do NOT ask questions or request clarification
-- Generate the complete script immediately
-
-CRITICAL FORMATTING FOR AUDIO GENERATION:
-- Keep each speaker's turn under 300 characters for optimal text-to-speech conversion
-- Use proper punctuation: periods, commas, question marks, and exclamation points
-- Write in complete sentences with natural speech rhythm
-- Include pauses with commas where speakers would naturally breathe
-- Avoid run-on sentences - break long thoughts into shorter sentences
-- Use contractions and natural speech patterns (don't, can't, we're, etc.)
-- End declarative statements with periods, questions with question marks
-- Use exclamation points sparingly for emphasis
-- Include natural interjections like "Well," "Look," "Actually," for realistic dialogue
-flow
-
-SPEECH QUALITY GUIDELINES:
-- DO NOT include a greeting or introduction or a conclusion, the script is for only the
-conversation
-- Write as people actually speak, not formal written text
-- Use shorter sentences that sound natural when spoken aloud
-- Include natural conversation fillers and transitions
-- Ensure each line flows smoothly when read aloud
-- Avoid complex sentence structures that are hard to pronounce
-
-End your response with the complete script in [S1]/[S2] format."""
     messages = [
         SystemMessage(content=script_gen_prompt),
         HumanMessage(

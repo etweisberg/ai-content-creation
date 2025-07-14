@@ -20,7 +20,7 @@ export default function RootLayout({
       <body className={`${inter.className} h-full bg-[#fafafa] text-[#1a1a1a]`}>
         <div className="flex h-full">
           <Navbar />
-          <main className="flex-1 overflow-hidden">{children}</main>
+          <main className="flex-1 overflow-auto">{children}</main>
         </div>
       </body>
     </html>
