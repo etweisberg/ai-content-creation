@@ -2,6 +2,9 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# Cache video file 
+COPY sloppy/video_prod/surf.mp4 ./sloppy/video_prod/surf.mp4
+
 # Copy dependency files
 COPY pyproject.toml uv.lock README.md ./
 

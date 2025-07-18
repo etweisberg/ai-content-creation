@@ -114,7 +114,7 @@ export function ScriptModal({
     }
   };
 
-  const handleGenerateVideo = async () => {
+  const handleGenerateVideo = async (videoOnly: boolean = false) => {
     if (!script.script) {
       setError("No script content available for video generation");
       return;
@@ -124,7 +124,12 @@ export function ScriptModal({
       setLoading(true);
       setError(null);
 
-      const response = await apiClient.generateVideo(script.id, script.script);
+      const settings = videoOnly ? { video_only: true } : {};
+      const response = await apiClient.generateVideo(
+        script.id,
+        script.script,
+        settings
+      );
       onTaskStart(response.task_id, script.id);
       console.log("Video generation started:", response.task_id);
 
@@ -151,7 +156,10 @@ export function ScriptModal({
       setLoading(true);
       setError(null);
 
-      const response = await apiClient.uploadTikTok(script.id, script.video_file);
+      const response = await apiClient.uploadTikTok(
+        script.id,
+        script.video_file
+      );
       onTaskStart(response.task_id, script.id);
       console.log("Upload started:", response.task_id);
 
@@ -166,28 +174,41 @@ export function ScriptModal({
     }
   };
 
-  const getNextAction = () => {
+  const getNextActions = () => {
     switch (script.state) {
       case ScriptState.GENERATED:
-        return {
-          label: "Generate Video",
-          action: handleGenerateVideo,
-          icon: Play,
-          disabled: !script.script,
-        };
+        return [
+          {
+            label: "Generate Video w/ Audio",
+            action: () => handleGenerateVideo(false),
+            icon: Play,
+            disabled: !script.script,
+            variant: "default" as const,
+          },
+          {
+            label: "Generate Video Only",
+            action: () => handleGenerateVideo(true),
+            icon: Video,
+            disabled: !script.script,
+            variant: "outline" as const,
+          },
+        ];
       case ScriptState.PRODUCED:
-        return {
-          label: "Upload to TikTok",
-          action: handleUpload,
-          icon: Upload,
-          disabled: !script.video_file,
-        };
+        return [
+          {
+            label: "Upload to TikTok",
+            action: handleUpload,
+            icon: Upload,
+            disabled: !script.video_file,
+            variant: "default" as const,
+          },
+        ];
       default:
-        return null;
+        return [];
     }
   };
 
-  const nextAction = getNextAction();
+  const nextActions = getNextActions();
   const totalCost = (script.script_cost || 0) + (script.video_cost || 0);
 
   return (
@@ -376,19 +397,29 @@ export function ScriptModal({
               {isDeleting ? "Deleting..." : "Delete Script"}
             </Button>
 
-            {nextAction && (
-              <Button
-                onClick={nextAction.action}
-                disabled={loading || nextAction.disabled}
-                className="bg-[#6366f1] hover:bg-[#5856eb] text-white"
-              >
-                {loading ? (
-                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <nextAction.icon className="w-4 h-4 mr-2" />
-                )}
-                {loading ? "Processing..." : nextAction.label}
-              </Button>
+            {nextActions.length > 0 && (
+              <div className="flex gap-2">
+                {nextActions.map((action, index) => (
+                  <Button
+                    key={index}
+                    onClick={action.action}
+                    disabled={loading || action.disabled}
+                    variant={action.variant}
+                    className={
+                      action.variant === "default"
+                        ? "bg-[#6366f1] hover:bg-[#5856eb] text-white"
+                        : "border-[#6366f1] text-[#6366f1] hover:bg-[#6366f1] hover:text-white"
+                    }
+                  >
+                    {loading ? (
+                      <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <action.icon className="w-4 h-4 mr-2" />
+                    )}
+                    {loading ? "Processing..." : action.label}
+                  </Button>
+                ))}
+              </div>
             )}
           </div>
         </div>

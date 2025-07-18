@@ -20,6 +20,9 @@ COPY pyproject.toml uv.lock README.md ./
 # Create minimal package structure for hatchling
 RUN mkdir -p sloppy && touch sloppy/__init__.py
 
+# Cache video file 
+COPY sloppy/video_prod/surf.mp4 ./sloppy/video_prod/surf.mp4
+
 # Install dependencies
 RUN uv sync --frozen
 

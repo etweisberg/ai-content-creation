@@ -237,8 +237,4 @@ def generate_news_script(self, topic):
         traceback.print_exc()
         script_mongo.clear_active_task(task_id)
         emit_task_failed(task_id, f"SCRIPT_GENERATION_FAILED: {str(e)}")
-        return {
-            "error": f"SCRIPT_GENERATION_FAILED: {str(e)}",
-            "cost": 0.0,
-            "success": False,
-        }
+        raise
