@@ -40,4 +40,4 @@ Create a `.env` file in the root directory with necessary configuration for API 
 - MongoDB: mongodb://admin:password@localhost:27017
 
 ### Demo (i can't edit videos :/)
-<iframe src="https://drive.google.com/file/d/1tTO1asQQWP5i49H15QkbM4EDRmOA07T1/preview" width="640" height="480" allow="autoplay"></iframe>
+[🎥 Watch Demo Video](https://drive.google.com/file/d/1tTO1asQQWP5i49H15QkbM4EDRmOA07T1/view)
