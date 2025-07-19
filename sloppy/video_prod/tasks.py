@@ -120,11 +120,11 @@ def generate_video_from_audio(audio_file_url: str, task_id: str) -> tuple[bool, 
                 logger.info("Attempting to set audio on video clip")
                 logger.info(f"trimmed_video type: {type(trimmed_video)}")
                 logger.info(f"audio_clip type: {type(audio_clip)}")
-                # Try the standard set_audio method
-                final_video = trimmed_video.set_audio(audio_clip)
+                # Use the correct method name for MoviePy v2.0+
+                final_video = trimmed_video.with_audio(audio_clip)
                 logger.info("Successfully set audio on video clip")
             except AttributeError as e:
-                logger.error(f"set_audio method not found: {e}")
+                logger.error(f"with_audio method not found: {e}")
                 return False, ""
             except Exception as e:
                 logger.error(f"Failed to set audio on video clip: {e}")
