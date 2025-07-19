@@ -304,6 +304,43 @@ export function ScriptModal({
             </div>
           )}
 
+          {/* Video Preview */}
+          {script.video_file && (
+            <div>
+              <h3 className="text-sm font-medium text-[#1a1a1a] mb-2 flex items-center gap-2">
+                <Video className="w-4 h-4" />
+                Video Preview
+              </h3>
+              <div className="bg-[#fafafa] rounded-lg p-4 border border-[#e0e0e0]">
+                <video
+                  controls
+                  className="w-full rounded-lg"
+                  preload="metadata"
+                  style={{ maxHeight: "400px" }}
+                >
+                  <source
+                    src={`/api/av-output/${script.video_file.split("/").pop()}`}
+                    type="video/mp4"
+                  />
+                  <source
+                    src={`/api/av-output/${script.video_file.split("/").pop()}`}
+                    type="video/webm"
+                  />
+                  <source
+                    src={`/api/av-output/${script.video_file.split("/").pop()}`}
+                    type="video/ogg"
+                  />
+                  Your browser does not support the video element.
+                </video>
+                <div className="mt-2">
+                  <span className="text-xs text-[#6b7280] font-mono">
+                    {script.video_file}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Costs */}
           {totalCost > 0 && (
             <div>
