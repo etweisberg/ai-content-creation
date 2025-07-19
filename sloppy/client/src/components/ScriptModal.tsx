@@ -114,9 +114,11 @@ export function ScriptModal({
     }
   };
 
-  const handleGenerateVideo = async (videoOnly: boolean = false) => {
+  const handleGenerateVideo = async (
+    generationMode: "audio_only" | "video_only" | "both"
+  ) => {
     if (!script.script) {
-      setError("No script content available for video generation");
+      setError("No script content available for generation");
       return;
     }
 
@@ -124,21 +126,28 @@ export function ScriptModal({
       setLoading(true);
       setError(null);
 
-      const settings = videoOnly ? { video_only: true } : {};
+      let settings = {};
+      if (generationMode === "audio_only") {
+        settings = { audio_only: true };
+      } else if (generationMode === "video_only") {
+        settings = { video_only: true };
+      }
+      // For 'both' mode, settings remains empty object (default behavior)
+
       const response = await apiClient.generateVideo(
         script.id,
         script.script,
         settings
       );
       onTaskStart(response.task_id, script.id);
-      console.log("Video generation started:", response.task_id);
+      console.log(`${generationMode} generation started:`, response.task_id);
 
       // The backend handles state updates, just refresh script data
       const updatedScript = await apiClient.getScript(script.id);
       onScriptUpdate(updatedScript);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to start video generation"
+        err instanceof Error ? err.message : "Failed to start generation"
       );
     } finally {
       setLoading(false);
@@ -179,15 +188,22 @@ export function ScriptModal({
       case ScriptState.GENERATED:
         return [
           {
+            label: "Generate Audio Only",
+            action: () => handleGenerateVideo("audio_only"),
+            icon: Volume2,
+            disabled: !script.script,
+            variant: "outline" as const,
+          },
+          {
             label: "Generate Video w/ Audio",
-            action: () => handleGenerateVideo(false),
+            action: () => handleGenerateVideo("both"),
             icon: Play,
             disabled: !script.script,
             variant: "default" as const,
           },
           {
             label: "Generate Video Only",
-            action: () => handleGenerateVideo(true),
+            action: () => handleGenerateVideo("video_only"),
             icon: Video,
             disabled: !script.script,
             variant: "outline" as const,
@@ -435,7 +451,7 @@ export function ScriptModal({
             </Button>
 
             {nextActions.length > 0 && (
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2">
                 {nextActions.map((action, index) => (
                   <Button
                     key={index}

@@ -172,14 +172,25 @@ def generate_video(
 ):
     celery_task_id = self.request.id
     load_envs()
+
+    # Determine generation mode
+    audio_only = generation_settings.get("audio_only", False)
+    video_only = generation_settings.get("video_only", False)
+    generate_both = not audio_only and not video_only
+
+    logger.info(
+        f"Generation mode - Audio only: {audio_only}, "
+        f"Video only: {video_only}, "
+        f"Both: {generate_both}"
+    )
+
     try:
         fal_api_key = os.getenv("FAL_KEY")
         if not fal_api_key:
             raise ValueError("FAL_KEY not found in environment")
-        # Set API key if needed (if fal_client supports it)
-        # fal_client.api_key = fal_api_key
 
-        if generation_settings.get("video_only"):
+        # Handle video-only generation
+        if video_only:
             try:
                 script = script_repository.get_script(script_identifier)
                 if script is None:
@@ -200,57 +211,92 @@ def generate_video(
             )
             if video_success:
                 script_repository.update_script(
-                    script_identifier, {"video_file": video_file_path}
+                    script_identifier,
+                    {
+                        "video_file": video_file_path,
+                        "state": ScriptState.PRODUCED,
+                    },
                 )
+                script_repository.clear_active_task(script_identifier)
+                emit_task_completed(celery_task_id)
+                return True
+            else:
+                error_message = "Video generation failed"
+                script_repository.update_script(
+                    script_identifier, {"state": ScriptState.GENERATED}
+                )
+                script_repository.clear_active_task(script_identifier)
+                emit_task_failed(celery_task_id, error_message)
+                raise RuntimeError(error_message)
 
-        audio_file_url, tts_cost = generate_audio_from_text(script_text)
+        # Handle audio generation (for both audio-only and both modes)
+        audio_file_url = None
+        tts_cost = 0.0
 
-        langfuse.update_current_span(
-            input={"script": script_text, "settings": generation_settings},
-            metadata={
-                "script_id": script_identifier,
-                "task_id": celery_task_id,
-                "script_length": len(script_text),
-                "timestamp": datetime.now().isoformat(),
-            },
-            output={
-                "audio_path": audio_file_url,
-                "success": True,
-            },
-        )
+        if audio_only or generate_both:
+            audio_file_url, tts_cost = generate_audio_from_text(script_text)
 
-        script_repository.update_script(
-            script_identifier,
-            {
-                "audio_file": audio_file_url,
-                "state": ScriptState.PRODUCED,
-                "video_cost": tts_cost,
-            },
-        )
+            langfuse.update_current_span(
+                input={"script": script_text, "settings": generation_settings},
+                metadata={
+                    "script_id": script_identifier,
+                    "task_id": celery_task_id,
+                    "script_length": len(script_text),
+                    "timestamp": datetime.now().isoformat(),
+                },
+                output={
+                    "audio_path": audio_file_url,
+                    "success": True,
+                },
+            )
 
-        # Call video generation
-        video_success, video_file_path = generate_video_from_audio(
-            audio_file_url, celery_task_id
-        )
-        if video_success:
             script_repository.update_script(
                 script_identifier,
-                {"video_file": video_file_path},
+                {
+                    "audio_file": audio_file_url,
+                    "video_cost": tts_cost,
+                },
+            )
+
+        # Handle audio-only mode
+        if audio_only:
+            script_repository.update_script(
+                script_identifier,
+                {
+                    "state": ScriptState.PRODUCED,
+                },
             )
             script_repository.clear_active_task(script_identifier)
             emit_task_completed(celery_task_id)
             return True
-        else:
-            error_message = "Video generation failed"
-            langfuse.update_current_span(
-                output={"error": error_message, "success": False}, level="ERROR"
+
+        # Handle video generation for both mode
+        if generate_both and audio_file_url:
+            video_success, video_file_path = generate_video_from_audio(
+                audio_file_url, celery_task_id
             )
-            script_repository.update_script(
-                script_identifier, {"state": ScriptState.GENERATED}
-            )
-            script_repository.clear_active_task(script_identifier)
-            emit_task_failed(celery_task_id, error_message)
-            raise RuntimeError(error_message)
+            if video_success:
+                script_repository.update_script(
+                    script_identifier,
+                    {
+                        "video_file": video_file_path,
+                        "state": ScriptState.PRODUCED,
+                    },
+                )
+                script_repository.clear_active_task(script_identifier)
+                emit_task_completed(celery_task_id)
+                return True
+            else:
+                error_message = "Video generation failed"
+                langfuse.update_current_span(
+                    output={"error": error_message, "success": False}, level="ERROR"
+                )
+                script_repository.update_script(
+                    script_identifier, {"state": ScriptState.GENERATED}
+                )
+                script_repository.clear_active_task(script_identifier)
+                emit_task_failed(celery_task_id, error_message)
+                raise RuntimeError(error_message)
 
     except Exception as task_error:
         error_message = str(task_error)

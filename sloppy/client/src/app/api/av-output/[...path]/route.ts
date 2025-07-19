@@ -4,10 +4,11 @@ import path from "path";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> }
 ) {
   try {
-    const filePath = path.join("/app/av_output", ...params.path);
+    const resolvedParams = await params;
+    const filePath = path.join("/app/av_output", ...resolvedParams.path);
 
     // Check if file exists
     try {
